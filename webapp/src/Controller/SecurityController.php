@@ -191,4 +191,21 @@ class SecurityController extends AbstractController
             'status_text' => 'Internal Server Error'
         ]);
     }
+
+    /**
+     * @Route("/oidc-error", name="oidc_error")
+     * @return RedirectResponse|Response
+     * @throws Exception
+     */
+    public function oidcErrorAction(Request $request, AuthorizationCheckerInterface $authorizationChecker)
+    {
+        if ($authorizationChecker->isGranted('IS_AUTHENTICATED_FULLY')) {
+            return $this->redirect($this->generateUrl('root'));
+        }
+
+        return $this->render('bundles/TwigBundle/Exception/error.html.twig', [
+            'status_code' => $request->query->has('message') ? 401 : 500,
+            'status_text' => $request->query->has('message') ? $request->query->get('message') : 'Internal Server Error'
+        ]);
+    }
 }
