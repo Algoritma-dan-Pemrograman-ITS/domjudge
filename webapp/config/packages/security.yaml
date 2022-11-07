@@ -63,7 +63,7 @@ security:
             custom_authenticators:
                 - App\Security\DOMJudgeXHeadersAuthenticator
                 - App\Security\DOMJudgeIPAuthenticator
-                # - App\Security\MyITSSSOAuthenticator
+                - App\Security\MyITSSSOAuthenticator
             form_login:
                 login_path: login
                 check_path: login
