@@ -2,6 +2,7 @@
 namespace App\Security;
 
 use App\Entity\User;
+use App\Service\DOMJudgeService;
 use Doctrine\ORM\EntityManagerInterface;
 use Its\Sso\OpenIDConnectClient;
 use Its\Sso\OpenIDConnectClientException;
@@ -29,18 +30,21 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
     private EntityManagerInterface $em;
     private RouterInterface $router;
     private Security $security;
+    protected DOMJudgeService $dj;
 
     public function __construct(
         ContainerBagInterface $params,
         EntityManagerInterface $em,
         Security $security,
-        RouterInterface $router
+        RouterInterface $router,
+        DOMJudgeService $dj
     )
     {
         $this->params = $params;
         $this->em = $em;
         $this->security = $security;
         $this->router = $router;
+        $this->dj = $dj;
     }
 
     /**
@@ -84,6 +88,25 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
             $nrp = $userSso->reg_id;
             /** @var ?User $user */
             $user = $em->getRepository(User::class)->findOneBy(['externalid' => $nrp]);
+            $picture = file_get_contents($userSso->picture);
+            $jpegType = !empty(array_filter($http_response_header, function($header) {
+                return $header == 'Content-Type: image/jpeg';
+            }));
+            $pngType = !empty(array_filter($http_response_header, function($header) {
+                return $header == 'Content-Type: image/png';
+            }));
+
+            $teamId = $nrp;
+            if ($teamId && ($jpegType || $pngType)) {
+                $path = $this->dj->assetPath(sprintf("%s.png", $teamId), 'team', true);
+                if ($path) unlink($path);
+                $path = $this->dj->assetPath(sprintf("%s.jpg", $teamId), 'team', true);
+                if ($path) unlink($path);
+                $path = sprintf("%s/public/images/teams/%s.%s", $this->dj->getDomjudgeWebappDir(), $teamId, ($pngType ? 'png' : 'jpg'));
+                if ($path) {
+                    file_put_contents($path, $picture);
+                }
+            }
     
             if (!$user) {
                 throw new CustomUserMessageAuthenticationException('User is not registered');
