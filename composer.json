@@ -69,7 +69,6 @@
 		"jms/serializer-bundle": "^4.0",
 		"league/commonmark": "^2.3",
 		"mbostock/d3": "^3.5",
-		"myits/openid-connect-client": "*",
 		"nelmio/api-doc-bundle": "^4.9",
 		"novus/nvd3": "^1.8",
 		"phpunit/phpunit": "~9.5",

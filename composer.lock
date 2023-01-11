@@ -3303,49 +3303,6 @@
             "time": "2022-03-03T13:19:32+00:00"
         },
         {
-            "name": "myits/openid-connect-client",
-            "version": "1.4.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/dptsi/php-openid-connect-client.git",
-                "reference": "adc39c776974da490b2d82394f0e4bc60cc9b88e"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/dptsi/php-openid-connect-client/zipball/adc39c776974da490b2d82394f0e4bc60cc9b88e",
-                "reference": "adc39c776974da490b2d82394f0e4bc60cc9b88e",
-                "shasum": ""
-            },
-            "require": {
-                "ext-curl": "*",
-                "ext-json": "*",
-                "php": ">=5.4",
-                "phpseclib/phpseclib": "~2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Its\\Sso\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "Apache-2.0"
-            ],
-            "authors": [
-                {
-                    "name": "DPTSI ITS",
-                    "email": "mobile@its.ac.id"
-                }
-            ],
-            "description": "Package for connect to myITS SSO",
-            "support": {
-                "issues": "https://github.com/dptsi/php-openid-connect-client/issues",
-                "source": "https://github.com/dptsi/php-openid-connect-client/tree/1.4.1"
-            },
-            "time": "2020-09-15T07:28:14+00:00"
-        },
-        {
             "name": "nelmio/api-doc-bundle",
             "version": "v4.10.2",
             "source": {
