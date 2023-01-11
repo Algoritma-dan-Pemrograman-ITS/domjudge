@@ -22,16 +22,18 @@ class OrganizationControllerTest extends BaseTest
             'country'      => 'NLD',
             'country_flag' => [
                 [
-                    'href'   => 'country-flags/NLD/4x3',
-                    'mime'   => 'image/svg+xml',
-                    'width'  => 640,
-                    'height' => 480,
+                    'href'     => 'country-flags/NLD/4x3',
+                    'mime'     => 'image/svg+xml',
+                    'width'    => 640,
+                    'height'   => 480,
+                    'filename' => 'country-flag-4x3.svg',
                 ],
                 [
-                    'href'   => 'country-flags/NLD/1x1',
-                    'mime'   => 'image/svg+xml',
-                    'width'  => 512,
-                    'height' => 512,
+                    'href'     => 'country-flags/NLD/1x1',
+                    'mime'     => 'image/svg+xml',
+                    'width'    => 512,
+                    'height'   => 512,
+                    'filename' => 'country-flag-1x1.svg',
                 ],
             ],
             'logo'         => null,
@@ -43,16 +45,18 @@ class OrganizationControllerTest extends BaseTest
             'country'      => 'DEU',
             'country_flag' => [
                 [
-                    'href'   => 'country-flags/DEU/4x3',
-                    'mime'   => 'image/svg+xml',
-                    'width'  => 640,
-                    'height' => 480,
+                    'href'     => 'country-flags/DEU/4x3',
+                    'mime'     => 'image/svg+xml',
+                    'width'    => 640,
+                    'height'   => 480,
+                    'filename' => 'country-flag-4x3.svg',
                 ],
                 [
-                    'href'   => 'country-flags/DEU/1x1',
-                    'mime'   => 'image/svg+xml',
-                    'width'  => 512,
-                    'height' => 512,
+                    'href'     => 'country-flags/DEU/1x1',
+                    'mime'     => 'image/svg+xml',
+                    'width'    => 512,
+                    'height'   => 512,
+                    'filename' => 'country-flag-1x1.svg',
                 ],
             ],
         ],
@@ -138,10 +142,11 @@ class OrganizationControllerTest extends BaseTest
         $object = $this->verifyApiJsonResponse('GET', $url, 200, 'admin');
         $logoConfig = [
             [
-                'href'   => "contests/2/organizations/$id/logo",
-                'mime'   => 'image/png',
-                'width'  => 181,
-                'height' => 101
+                'href'     => "contests/1/organizations/$id/logo",
+                'mime'     => 'image/png',
+                'width'    => 181,
+                'height'   => 101,
+                'filename' => 'logo.png',
             ]
         ];
         self::assertSame($logoConfig, $object['logo']);

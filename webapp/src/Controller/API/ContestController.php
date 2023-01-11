@@ -32,19 +32,25 @@ use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\KernelInterface;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use Symfony\Component\Yaml\Yaml;
 
 /**
  * @Rest\Route("/contests")
  * @OA\Tag(name="Contests")
+ * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
  * @OA\Response(response="404", ref="#/components/responses/NotFound")
- * @OA\Response(response="401", ref="#/components/responses/Unauthorized")
  */
 class ContestController extends AbstractRestController
 {
     protected ImportExportService $importExportService;
     protected AssetUpdateService $assetUpdater;
+
+    public const EVENT_FEED_FORMAT_2020_03 = 0;
+    public const EVENT_FEED_FORMAT_2022_07 = 1;
 
     public function __construct(
         EntityManagerInterface $entityManager,
@@ -63,7 +69,6 @@ class ContestController extends AbstractRestController
      * Add a new contest.
      * @Rest\Post("")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\RequestBody(
      *     required=true,
      *     @OA\MediaType(
@@ -194,11 +199,10 @@ class ContestController extends AbstractRestController
 
         $banner = $this->dj->assetPath($id, 'contest', true);
 
-        if (!file_exists($banner)) {
-            throw new NotFoundHttpException('Contest banner not found');
+        if ($banner && file_exists($banner)) {
+            return static::sendBinaryFileResponse($request, $banner);
         }
-
-        return static::sendBinaryFileResponse($request, $banner);
+        throw new NotFoundHttpException('Contest banner not found');
     }
 
     /**
@@ -219,6 +223,11 @@ class ContestController extends AbstractRestController
 
         if ($contest === null) {
             throw new NotFoundHttpException(sprintf('Object with ID \'%s\' not found', $id));
+        }
+
+        if ($contest->isLocked()) {
+            $contestUrl = $this->generateUrl('jury_contest', ['contestId' => $id], UrlGeneratorInterface::ABSOLUTE_URL);
+            throw new AccessDeniedHttpException('Contest is locked, go to ' . $contestUrl . ' to unlock it.');
         }
 
         $contest->setClearBanner(true);
@@ -266,6 +275,11 @@ class ContestController extends AbstractRestController
             throw new NotFoundHttpException(sprintf('Object with ID \'%s\' not found', $id));
         }
 
+        if ($contest->isLocked()) {
+            $contestUrl = $this->generateUrl('jury_contest', ['contestId' => $id], UrlGeneratorInterface::ABSOLUTE_URL);
+            throw new AccessDeniedHttpException('Contest is locked, go to ' . $contestUrl . ' to unlock it.');
+        }
+
         /** @var UploadedFile $banner */
         $banner = $request->files->get('banner');
 
@@ -302,7 +316,7 @@ class ContestController extends AbstractRestController
      *     @OA\MediaType(
      *         mediaType="application/x-www-form-urlencoded",
      *         @OA\Schema(
-     *             required={"id"},
+     *             required={"id","start_time"},
      *             @OA\Property(
      *                 property="id",
      *                 description="The ID of the contest to change the start time for",
@@ -313,6 +327,11 @@ class ContestController extends AbstractRestController
      *                 description="The new start time of the contest",
      *                 type="string",
      *                 format="date-time"
+     *             ),
+     *             @OA\Property(
+     *                 property="force",
+     *                 description="Force overwriting the start_time even when in next 30s",
+     *                 type="boolean",
      *             )
      *         )
      *     )
@@ -320,10 +339,9 @@ class ContestController extends AbstractRestController
      * @OA\Response(
      *     response="200",
      *     description="Contest start time changed successfully",
-     * )
-     * @OA\Response(
-     *     response="403",
-     *     description="Changing start time not allowed"
+     *     @OA\JsonContent(
+     *         type="string"
+     *     )
      * )
      */
     public function changeStartTimeAction(Request $request, string $cid): Response
@@ -440,7 +458,6 @@ class ContestController extends AbstractRestController
     /**
      * Get the event feed for the given contest.
      * @Rest\Get("/{cid}/event-feed")
-     * @OA\Get()
      * @Security("is_granted('ROLE_JURY') or is_granted('ROLE_API_READER')")
      * @throws NonUniqueResultException
      * @OA\Parameter(ref="#/components/parameters/cid")
@@ -496,23 +513,31 @@ class ContestController extends AbstractRestController
         $contest = $this->getContestWithId($request, $cid);
         // Make sure this script doesn't hit the PHP maximum execution timeout.
         set_time_limit(0);
-        if ($request->query->has('since_id')) {
-            $since_id = $request->query->getInt('since_id');
+
+        if ($request->query->has('since_token') || $request->query->has('since_id')) {
+            $since_id = (int)$request->query->get('since_token', $request->query->get('since_id'));
             $event    = $this->em->getRepository(Event::class)->findOneBy([
                 'eventid' => $since_id,
                 'contest' => $contest,
             ]);
             if ($event === null) {
-                return new Response('Invalid parameter "since_id" requested.', Response::HTTP_BAD_REQUEST);
+                throw new BadRequestHttpException(
+                    sprintf(
+                        'Invalid parameter "%s" requested.',
+                        $request->query->has('since_token') ? 'since_token' : 'since_id'
+                    )
+                );
             }
         } else {
             $since_id = -1;
         }
 
+        $format = $this->config->get('event_feed_format');
+
         $response = new StreamedResponse();
         $response->headers->set('X-Accel-Buffering', 'no');
         $response->headers->set('Content-Type', 'application/x-ndjson');
-        $response->setCallback(function () use ($cid, $contest, $request, $since_id, $metadataFactory, $kernel) {
+        $response->setCallback(function () use ($format, $cid, $contest, $request, $since_id, $metadataFactory, $kernel) {
             $lastUpdate = 0;
             $lastIdSent = $since_id;
             $typeFilter = false;
@@ -522,6 +547,11 @@ class ContestController extends AbstractRestController
             $strict     = $request->query->getBoolean('strict', false);
             $stream     = $request->query->getBoolean('stream', true);
             $canViewAll = $this->isGranted('ROLE_API_READER');
+
+            // Keep track of the last send state event; we may have the same
+            // event more than once in our table and we want to make sure we
+            // only send it out once.
+            $lastState = null;
 
             $skippedProperties = [];
             // Determine which properties we should not send out for strict clients.
@@ -544,6 +574,7 @@ class ContestController extends AbstractRestController
 
                 // Change some specific endpoints that do not map to our own objects.
                 $toCheck['problems'] = ContestProblem::class;
+                $toCheck['judgements'] = $toCheck['judgings'];
                 $toCheck['groups'] = $toCheck['teamcategories'];
                 $toCheck['organizations'] = $toCheck['teamaffiliations'];
                 unset($toCheck['teamcategories']);
@@ -566,9 +597,6 @@ class ContestController extends AbstractRestController
                 // entity, not the ContestProblem entity, so the above loop will not
                 // detect it.
                 $skippedProperties['problems'][] = 'externalid';
-
-                // Users are called accounts.
-                $skippedProperties['accounts'] = $skippedProperties['users'];
             }
 
             // Initialize all static events.
@@ -620,21 +648,55 @@ class ContestController extends AbstractRestController
                             unset($data['test_data_count']);
                         }
                     }
+
+                    // Do not send out the same state event twice
+                    if ($event->getEndpointtype() === 'state') {
+                        if ($data === $lastState) {
+                            continue;
+                        }
+
+                        $lastState = $data;
+                    }
+
                     if ($strict) {
                         $toSkip = $skippedProperties[$event->getEndpointtype()] ?? [];
                         foreach ($toSkip as $property) {
                             unset($data[$property]);
                         }
                     }
-                    $result = [
-                        'id' => (string)$event->getEventid(),
-                        'type' => (string)$event->getEndpointtype(),
-                        'op' => (string)$event->getAction(),
-                        'data' => $data,
-                    ];
+                    switch ($format) {
+                        case static::EVENT_FEED_FORMAT_2020_03:
+                            $result = [
+                                'id' => (string)$event->getEventid(),
+                                'type' => (string)$event->getEndpointtype(),
+                                'op' => (string)$event->getAction(),
+                                'data' => $data,
+                            ];
+                            break;
+                        case static::EVENT_FEED_FORMAT_2022_07:
+                            if ($event->getAction() === EventLogService::ACTION_DELETE) {
+                                $data = null;
+                            }
+                            $id   = (string)$event->getEndpointid() ?: null;
+                            $type = (string)$event->getEndpointtype();
+                            if ($type === 'contests') {
+                                // Special case: the type for a contest is singular and the ID must not be set
+                                $id   = null;
+                                $type = 'contest';
+                            }
+                            $result = [
+                                'token' => (string)$event->getEventid(),
+                                'id'    => $id,
+                                'type'  => $type,
+                                'data'  => $data,
+                            ];
+                            break;
+                    }
+
                     if (!$strict) {
                         $result['time'] = Utils::absTime($event->getEventtime());
                     }
+
                     echo $this->dj->jsonEncode($result) . "\n";
                     ob_flush();
                     flush();
@@ -689,7 +751,11 @@ class ContestController extends AbstractRestController
 
     protected function getQueryBuilder(Request $request): QueryBuilder
     {
-        return $this->getContestQueryBuilder($request->query->getBoolean('onlyActive', false));
+        try {
+            return $this->getContestQueryBuilder($request->query->getBoolean('onlyActive', false));
+        } catch (\TypeError $e) {
+            throw new BadRequestHttpException('\'onlyActive\' must be a boolean.');
+        }
     }
 
     protected function getIdField(): string

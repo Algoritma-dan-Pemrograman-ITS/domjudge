@@ -320,10 +320,10 @@ class LanguageController extends BaseController
                           ->select('j')
                           ->join('j.submission', 's')
                           ->join('s.team', 't')
-                          ->join('t.category', 'tc')
-                          ->andWhere('tc.visible = true')
                           ->andWhere('j.valid = true')
+                          ->andWhere('j.result != :compiler_error')
                           ->andWhere('s.language = :langId')
+                          ->setParameter('compiler_error', 'compiler-error')
                           ->setParameter('langId', $langId);
         if ($contestId > -1) {
             $query->andWhere('s.contest = :contestId')

@@ -2,6 +2,7 @@
 
 namespace App\Tests\Unit\Controller\API;
 
+use App\Controller\API\GeneralInfoController;
 use App\DataFixtures\Test\SampleSubmissionsFixture;
 use App\Service\DOMJudgeService;
 use Generator;
@@ -28,15 +29,17 @@ class GeneralInfoControllerTest extends BaseTest
     {
         $infoEndpoints = ['/', '/info'];
 
-        foreach($infoEndpoints as $endpoint) {
+        foreach ($infoEndpoints as $endpoint) {
             $response = $this->verifyApiJsonResponse('GET', $endpoint, 200);
 
             static::assertIsArray($response);
             static::assertCount(4, $response);
-            static::assertEquals(static::API_VERSION, $response['api_version']);
-            static::assertMatchesRegularExpression('/^\d+\.\d+\.\d+/', $response['domjudge_version']);
-            static::assertEquals('test', $response['environment']);
-            static::assertStringStartsWith('http', $response['doc_url']);
+            static::assertEquals(GeneralInfoController::CCS_SPEC_API_VERSION, $response['version']);
+            static::assertEquals(GeneralInfoController::CCS_SPEC_API_URL, $response['version_url']);
+            static::assertEquals('DOMjudge', $response['name']);
+            static::assertMatchesRegularExpression('/^\d+\.\d+\.\d+/', $response['domjudge']['version']);
+            static::assertEquals('test', $response['domjudge']['environment']);
+            static::assertStringStartsWith('http', $response['domjudge']['doc_url']);
         }
     }
 
@@ -105,7 +108,7 @@ class GeneralInfoControllerTest extends BaseTest
         static::assertTrue($response['enabled']);
         static::assertGreaterThanOrEqual($response['first_login_time'], $response['last_login_time']);
         $keysExpected = ['id', 'ip', 'last_ip', 'email'];
-        foreach($keysExpected as $keyExpected) {
+        foreach ($keysExpected as $keyExpected) {
             static::assertArrayHasKey($keyExpected, $response);
         }
     }
@@ -123,7 +126,7 @@ class GeneralInfoControllerTest extends BaseTest
      */
     public function testCountryFlagExists(string $countryCode, string $size): void
     {
-        $this->withChangedConfiguration('show_flags', true, function() use ($countryCode, $size) {
+        $this->withChangedConfiguration('show_flags', true, function () use ($countryCode, $size) {
             $this->client->request('GET', "/api/country-flags/$countryCode/$size");
             /** @var BinaryFileResponse $response */
             $response = $this->client->getResponse();
@@ -155,7 +158,7 @@ class GeneralInfoControllerTest extends BaseTest
      */
     public function testCountryFlagNotFound(string $countryCode, string $size): void
     {
-        $this->withChangedConfiguration('show_flags', true, function() use ($countryCode, $size) {
+        $this->withChangedConfiguration('show_flags', true, function () use ($countryCode, $size) {
             $this->client->request('GET', "/api/country-flags/$countryCode/$size");
             /** @var BinaryFileResponse $response */
             $response = $this->client->getResponse();
@@ -177,7 +180,7 @@ class GeneralInfoControllerTest extends BaseTest
      */
     public function testCountryNotFound(string $countryCode, string $size): void
     {
-        $this->withChangedConfiguration('show_flags', true, function() use ($countryCode, $size) {
+        $this->withChangedConfiguration('show_flags', true, function () use ($countryCode, $size) {
             $this->client->request('GET', "/api/country-flags/$countryCode/$size");
             /** @var BinaryFileResponse $response */
             $response = $this->client->getResponse();

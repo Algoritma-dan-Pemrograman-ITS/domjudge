@@ -15,6 +15,15 @@ function dj_json_decode(string $str)
 }
 
 /**
+ * Try to decode a JSON string with our preferred settings.
+ * Does not throw error, but errors can be obtained via json_last_error().
+ */
+function dj_json_try_decode(string $str)
+{
+    return json_decode($str, true);
+}
+
+/**
  * Encode data to JSON with our preferred settings.
  */
 function dj_json_encode($data) : string
@@ -59,6 +68,30 @@ function dj_file_get_contents(string $filename, int $maxsize = -1) : string
  */
 function dj_escapeshellarg(?string $arg) : string
 {
-    if (!isset($arg) || $arg==='') return "''";
+    if (!isset($arg) || $arg==='') {
+        return "''";
+    }
     return escapeshellarg($arg);
+}
+
+/**
+ * A simple function that allows to sleep for fractional seconds. Note that
+ * usleep is documented to consume CPU cycles and may not work for times
+ * larger than a second.
+ * Returns a boolean value for success or if the delay was interrupted by a
+ * signal, returns a float with the time remaining, similar to time_nanosleep.
+ */
+function dj_sleep(float $seconds)
+{
+    $second_in_nanoseconds = 1_000_000_000;
+
+    $seconds_int = (int)$seconds;
+    $nanoseconds = (int)($second_in_nanoseconds * ($seconds-$seconds_int));
+
+    $result = time_nanosleep($seconds_int, $nanoseconds);
+    if (is_array($result)) {
+        $result = $result['seconds'] + $result['nanoseconds'] / $second_in_nanoseconds;
+    }
+
+    return $result;
 }

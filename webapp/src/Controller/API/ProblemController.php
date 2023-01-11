@@ -5,6 +5,7 @@ namespace App\Controller\API;
 use App\Entity\Contest;
 use App\Entity\ContestProblem;
 use App\Entity\Problem;
+use App\Entity\Submission;
 use App\Helpers\ContestProblemWrapper;
 use App\Helpers\OrdinalArray;
 use App\Service\ConfigurationService;
@@ -21,17 +22,20 @@ use Sensio\Bundle\FrameworkExtraBundle\Configuration\IsGranted;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Yaml\Yaml;
 
 /**
  * @Rest\Route("/contests/{cid}/problems")
  * @OA\Tag(name="Problems")
  * @OA\Parameter(ref="#/components/parameters/cid")
- * @OA\Response(response="404", ref="#/components/responses/NotFound")
- * @OA\Response(response="401", ref="#/components/responses/Unauthorized")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
+ * @OA\Response(response="404", ref="#/components/responses/NotFound")
  */
 class ProblemController extends AbstractRestController implements QueryObjectTransformer
 {
@@ -55,7 +59,6 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
      * Add one or more problems.
      * @Rest\Post("/add-data")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\RequestBody(
      *     required=true,
      *     @OA\MediaType(
@@ -86,6 +89,11 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
         $contestId = $this->getContestId($request);
         /** @var Contest $contest */
         $contest = $this->em->getRepository(Contest::class)->find($contestId);
+
+        if ($contest->isLocked()) {
+            $contestUrl = $this->generateUrl('jury_contest', ['contestId' => $contestId], UrlGeneratorInterface::ABSOLUTE_URL);
+            throw new AccessDeniedHttpException('Contest is locked, go to ' . $contestUrl . ' to unlock it.');
+        }
 
         /** @var UploadedFile $file */
         $file = $request->files->get('data') ?: [];
@@ -163,7 +171,6 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
      * Add a problem to this contest.
      * @Rest\Post("")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\RequestBody(
      *     required=true,
      *     @OA\MediaType(
@@ -180,11 +187,6 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
      *                 property="problem",
      *                 description="Optional: problem id to update.",
      *                 type="string"
-     *             ),
-     *             @OA\Property(
-     *                 property="delete_old_data",
-     *                 description="Optional: whether to delete old (existing) data before importing into an existing problem.",
-     *                 type="boolean"
      *             )
      *         )
      *     )
@@ -204,7 +206,14 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
      */
     public function addProblemAction(Request $request): array
     {
-        return $this->importProblemService->importProblemFromRequest($request, $this->getContestId($request));
+        $contestId = $this->getContestId($request);
+        /** @var Contest $contest */
+        $contest = $this->em->getRepository(Contest::class)->find($contestId);
+        if ($contest->isLocked()) {
+            $contestUrl = $this->generateUrl('jury_contest', ['contestId' => $contestId], UrlGeneratorInterface::ABSOLUTE_URL);
+            throw new AccessDeniedHttpException('Contest is locked, go to ' . $contestUrl . ' to unlock it.');
+        }
+        return $this->importProblemService->importProblemFromRequest($request, $contestId);
     }
 
     /**
@@ -243,6 +252,11 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
 
         if (empty($contestProblem)) {
             throw new NotFoundHttpException(sprintf('Object with ID \'%s\' not found', $id));
+        }
+        $contest = $contestProblem->getContest();
+        if ($contest->isLocked()) {
+            $contestUrl = $this->generateUrl('jury_contest', ['contestId' => $contest->getCid()], UrlGeneratorInterface::ABSOLUTE_URL);
+            throw new AccessDeniedHttpException('Contest is locked, go to ' . $contestUrl . ' to unlock it.');
         }
 
         $this->em->remove($contestProblem);
@@ -295,6 +309,11 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
         }
 
         $cid = $this->getContestId($request);
+        $contest = $this->em->getRepository(Contest::class)->find($cid);
+        if ($contest->isLocked()) {
+            $contestUrl = $this->generateUrl('jury_contest', ['contestId' => $contest->getCid()], UrlGeneratorInterface::ABSOLUTE_URL);
+            throw new AccessDeniedHttpException('Contest is locked, go to ' . $contestUrl . ' to unlock it.');
+        }
 
         /** @var ContestProblem|null $contestProblem */
         $contestProblem = $this->em->createQueryBuilder()
@@ -375,6 +394,45 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
         return $this->renderData($request, $object);
     }
 
+    /**
+     * Get the statement for given problem for this contest.
+     * @throws NonUniqueResultException
+     * @Rest\Get("/{id}/statement")
+     * @OA\Response(
+     *     response="200",
+     *     description="Returns the given problem statement for this contest",
+     *     @OA\MediaType(mediaType="application/pdf")
+     * )
+     * @OA\Parameter(ref="#/components/parameters/id")
+     * @OA\Parameter(ref="#/components/parameters/strict")
+     */
+    public function statementAction(Request $request, string $id): Response
+    {
+        $queryBuilder = $this->getQueryBuilder($request)
+            ->addSelect('partial p.{probid,problemtext}')
+            ->setParameter('id', $id)
+            ->andWhere(sprintf('%s = :id', $this->getIdField()));
+
+        // Get the one result; we know it's only one since we filter on ID
+        $contestProblemData = $queryBuilder->getQuery()->getOneOrNullResult();
+
+        if (empty($contestProblemData)) {
+            throw new NotFoundHttpException(sprintf('Problem with ID \'%s\' not found', $id));
+        }
+
+        // The result contains the contest problem as well as the test data
+        // count which should not be disclosed to the contestants; so get only
+        // the problem.
+        /** @var ContestProblem $contestProblem */
+        $contestProblem = $contestProblemData[0];
+
+        if ($contestProblem->getProblem()->getProblemtextType() !== 'pdf') {
+            throw new NotFoundHttpException(sprintf('Problem with ID \'%s\' has no PDF statement', $id));
+        }
+
+        return $contestProblem->getProblem()->getProblemTextStreamedResponse();
+    }
+
     protected function getQueryBuilder(Request $request): QueryBuilder
     {
         $contestId = $this->getContestId($request);
@@ -385,7 +443,7 @@ class ProblemController extends AbstractRestController implements QueryObjectTra
             ->from(ContestProblem::class, 'cp')
             ->join('cp.problem', 'p')
             ->leftJoin('p.testcases', 'tc')
-            ->select('cp, partial p.{probid,externalid,name,timelimit,memlimit}, COUNT(tc.testcaseid) AS testdatacount')
+            ->select('cp, partial p.{probid,externalid,name,timelimit,memlimit,problemtext_type}, COUNT(tc.testcaseid) AS testdatacount')
             ->andWhere('cp.contest = :cid')
             ->andWhere('cp.allowSubmit = 1')
             ->setParameter('cid', $contestId)

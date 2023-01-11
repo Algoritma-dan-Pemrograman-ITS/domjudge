@@ -64,7 +64,8 @@ class JuryMiscControllerTest extends BaseTest
      */
     public function testBalloonScoreboard(array $fixtures, bool $public, string $contestStage): void
     {
-        $visibleElements = ["rank","team","Summary","boolfind"];
+        //self::assertEquals((string) $public, $contestStage);
+        $visibleElements = ["rank","team","Summary","C"];
         $nonActiveStages = ["preActivation","postDeactivate"];
         $this->loadFixtures($fixtures);
         /** @var ScoreboardService $sbs */
@@ -80,7 +81,7 @@ class JuryMiscControllerTest extends BaseTest
         $response = $this->client->getResponse();
         self::assertEquals('200', $response->getStatusCode());
         self::assertSelectorExists('body:contains("scoreboard")');
-        foreach(['/public','/jury/scoreboard'] as $url) {
+        foreach (['/public','/jury/scoreboard'] as $url) {
             $this->verifyPageResponse('GET', $url, 200);
             if (in_array($contestStage, $nonActiveStages) || (!$public && $url==='/public')) {
                 $elements = ["No active contest"];
@@ -96,10 +97,10 @@ class JuryMiscControllerTest extends BaseTest
             } else {
                 $elements = $visibleElements;
             }
-            foreach($elements as $selector) {
+            foreach ($elements as $selector) {
                 self::assertSelectorExists('body:contains("'.$selector.'")');
             }
-            if (in_array($contestStage,['preFreeze','preEnd']) && $public) {
+            if (in_array($contestStage, ['preFreeze','preEnd']) && $public) {
                 self::assertSelectorExists('span.submcorrect:contains("1")');
                 if (in_array($contestStage, ['preEnd','preUnfreeze'])) {
                     self::assertSelectorExists('span.submpend:contains("1")');
@@ -109,45 +110,43 @@ class JuryMiscControllerTest extends BaseTest
                 }
             }
         }
-        foreach(range(1,3) as $id) {
+        foreach (range(1, 3) as $id) {
             $statusCode = in_array($contestStage, ['preActivation','preStart','postDeactivate']) || !$public ? 404 : 200;
-            $this->verifyPageResponse('HEAD', '/public/problems/'.$id.'/text',$statusCode);
+            $this->verifyPageResponse('HEAD', '/public/problems/'.$id.'/text', $statusCode);
         }
         $this->verifyPageResponse('GET', '/public/problems', 200);
-        if (in_array($contestStage, array_merge(['preStart'],$nonActiveStages)) || !$public) {
+        if (in_array($contestStage, array_merge(['preStart'], $nonActiveStages)) || !$public) {
             self::assertSelectorExists('body:contains("No problem texts available at this point.")');
-            self::assertSelectorNotExists('body:contains("boolfind")');
         } else {
-            self::assertSelectorExists('body:contains("boolfind")');
+            self::assertSelectorNotExists('body:contains("No problem texts available at this point.")');
         }
     }
 
     public function provideContestStageForBalloon(): Generator
     {
-        foreach(
-            ['preActivation'=>[DemoPreActivationContestFixture::class],
-             'preStart'=>[DemoPreStartContestFixture::class],
-             'preFreeze'=>[DemoPreFreezeContestFixture::class,SampleSubmissionsThreeTriesCorrectFixture::class],
-             'preEnd'=>[DemoPreEndContestFixture::class,
-                        SampleSubmissionsMultipleTriesFixture::class,
-                        SampleSubmissionsThreeTriesCorrectFixture::class,
-                        SampleSubmissionsThreeTriesCorrectSameLanguageFixture::class],
-             'preUnfreeze'=>[DemoPreUnfreezeContestFixture::class,
+        foreach (['preActivation'=>[DemoPreActivationContestFixture::class],
+                  'preStart'=>[DemoPreStartContestFixture::class],
+                  'preFreeze'=>[DemoPreFreezeContestFixture::class,SampleSubmissionsThreeTriesCorrectFixture::class],
+                  'preEnd'=>[DemoPreEndContestFixture::class,
                              SampleSubmissionsMultipleTriesFixture::class,
                              SampleSubmissionsThreeTriesCorrectFixture::class,
                              SampleSubmissionsThreeTriesCorrectSameLanguageFixture::class],
-             'preDeactivate'=>[DemoPreDeactivateContestFixture::class,
-                               SampleSubmissionsMultipleTriesFixture::class,
-                               SampleSubmissionsThreeTriesCorrectFixture::class,
-                               SampleSubmissionsThreeTriesCorrectSameLanguageFixture::class],
-             'postDeactivate'=>[DemoPostDeactivateContestFixture::class,
-                                SampleSubmissionsMultipleTriesFixture::class,
-                                SampleSubmissionsThreeTriesCorrectFixture::class,
-                                SampleSubmissionsThreeTriesCorrectSameLanguageFixture::class]
-            ] as $ident=>$timeFixture) {
-            foreach([true,false] as $public) {
+                  'preUnfreeze'=>[DemoPreUnfreezeContestFixture::class,
+                                  SampleSubmissionsMultipleTriesFixture::class,
+                                  SampleSubmissionsThreeTriesCorrectFixture::class,
+                                  SampleSubmissionsThreeTriesCorrectSameLanguageFixture::class],
+                  'preDeactivate'=>[DemoPreDeactivateContestFixture::class,
+                                    SampleSubmissionsMultipleTriesFixture::class,
+                                    SampleSubmissionsThreeTriesCorrectFixture::class,
+                                    SampleSubmissionsThreeTriesCorrectSameLanguageFixture::class],
+                  'postDeactivate'=>[DemoPostDeactivateContestFixture::class,
+                                     SampleSubmissionsMultipleTriesFixture::class,
+                                     SampleSubmissionsThreeTriesCorrectFixture::class,
+                                     SampleSubmissionsThreeTriesCorrectSameLanguageFixture::class]
+            ] as $ident => $timeFixture) {
+            foreach ([true,false] as $public) {
                 $fixture = $public ? [] : [DemoNonPublicContestFixture::class];
-                yield [array_merge($fixture,$timeFixture),$public, $ident];
+                yield [array_merge($fixture, $timeFixture),$public, $ident];
             }
         }
     }
@@ -157,7 +156,8 @@ class JuryMiscControllerTest extends BaseTest
      *
      * @dataProvider provideJuryAjax
      */
-    public function testJuryAjax(string $endpoint, int $status, array $newRoles, array $finalObject): void {
+    public function testJuryAjax(string $endpoint, int $status, array $newRoles, array $finalObject): void
+    {
         $url = '/jury/ajax/'.$endpoint;
         $this->roles = $newRoles;
         $this->logOut();
@@ -173,7 +173,7 @@ class JuryMiscControllerTest extends BaseTest
 
     public function provideJuryAjax(): Generator
     {
-        foreach([200 => ['balloon','jury','admin'], 403 => ['team']] as $status=>$roles) {
+        foreach ([200 => ['balloon','jury','admin'], 403 => ['team']] as $status => $roles) {
             foreach ($roles as $role) {
                 yield ['affiliations', $status, [$role], ['results' => [0 => ['id' => 1,
                                                                               'text' => 'Utrecht University (1)']
@@ -181,7 +181,7 @@ class JuryMiscControllerTest extends BaseTest
                 yield ['locations', $status, [$role], ['results' => []]];
             }
         }
-        foreach ([200 => ['jury','admin'], 403 => ['balloon','team']] as $status=>$roles) {
+        foreach ([200 => ['jury','admin'], 403 => ['balloon','team']] as $status => $roles) {
             foreach ($roles as $role) {
                 yield ['problems', $status, [$role], ['results' => [0 => ['id' => 3, 'text' => 'Boolean switch search (p3)'],
                                                                     1 => ['id' => 2,
@@ -208,11 +208,10 @@ class JuryMiscControllerTest extends BaseTest
                                                                      16 => ['id' => 'py3', 'text' => 'Python 3 (py3)'],
                                                                      17 => ['id' => 'r', 'text' => 'R (r)'],
                                                                      18 => ['id' => 'rb', 'text' => 'Ruby (rb)'],
-                                                                     19 => ['id' => 'scala', 'text' => 'Scala (scala)'],
-                                                                     20 => ['id' => 'swift', 'text' => 'Swift (swift)']]]];
-                yield ['contests', $status, [$role], ['results' => [0 => ['id' => 2, 'text' => 'Demo contest (demo - c2)'],
-                                                                    1 => ['id' => 1,
-                                                                          'text' => 'Demo practice session (demoprac - c1)']
+                                                                     19 => ['id' => 'rs', 'text' => 'Rust (rs)'],
+                                                                     20 => ['id' => 'scala', 'text' => 'Scala (scala)'],
+                                                                     21 => ['id' => 'swift', 'text' => 'Swift (swift)']]]];
+                yield ['contests', $status, [$role], ['results' => [0 => ['id' => 1, 'text' => 'Demo contest (demo - c1)']
                                                                    ]]];
             }
         }

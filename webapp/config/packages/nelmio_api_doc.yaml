@@ -81,23 +81,37 @@ nelmio_api_doc:
                 NotFound:
                     description: The specified resource was not found
                     content:
-                        text/html:
+                        application/json:
                             schema:
-                                type: string
+                                type: object
+                Unauthenticated:
+                    description: Unauthenticated, authentication is missing
                 Unauthorized:
-                    description: Unauthorized
+                    description: Unauthorized, user needs an additional role
                     content:
-                        text/html:
+                        application/json:
                             schema:
-                                type: string
+                                type: object
                 InvalidResponse:
                     description: The specified resource identifier is malformed
                     content:
+                        application/json:
+                            schema:
+                                type: object
+                        text/html:
+                            schema:
+                                type: string
+                PostAccountResponse:
+                    description: Returns a (currently meaningless) status message.
+                    content:
+                        application/json:
+                            schema:
+                                type: object
                         text/html:
                             schema:
                                 type: string
             schemas:
-                ImageList:
+                FileList:
                     type: array
                     items:
                         type: object
@@ -105,6 +119,20 @@ nelmio_api_doc:
                             href:
                                 type: string
                             mime:
+                                type: string
+                ImageList:
+                    type: array
+                    nullable: true
+                    items:
+                        type: object
+                        properties:
+                            href:
+                                type: string
+                            mime:
+                                type: string
+                            hash:
+                                type: string
+                            filename:
                                 type: string
                             width:
                                 type: integer
@@ -143,6 +171,8 @@ nelmio_api_doc:
                             format: float
                         test_data_count:
                             type: integer
+                        statement:
+                            $ref: "#/components/schemas/StatementList"
                 Files:
                     properties:
                         files:
@@ -155,6 +185,17 @@ nelmio_api_doc:
                             href:
                                 type: string
                             mime:
+                                type: string
+                StatementList:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            href:
+                                type: string
+                            mime:
+                                type: string
+                            filename:
                                 type: string
                 SourceCodeList:
                     type: array
@@ -186,11 +227,13 @@ nelmio_api_doc:
                     properties:
                         judgement_type_id:
                             type: string
+                            nullable: true
                         judgehost:
                             type: string
                         max_run_time:
                             type: number
                             format: float
+                            nullable: true
                 RunExtraFields:
                     properties:
                         judgement_type_id:
@@ -246,21 +289,27 @@ nelmio_api_doc:
                     properties:
                         started:
                             type: string
+                            nullable: true
                             format: date-time
                         ended:
                             type: string
+                            nullable: true
                             format: date-time
                         frozen:
                             type: string
+                            nullable: true
                             format: date-time
                         thawed:
                             type: string
+                            nullable: true
                             format: date-time
                         finalized:
                             type: string
+                            nullable: true
                             format: date-time
                         end_of_updates:
                             type: string
+                            nullable: true
                             format: date-time
                 Award:
                     type: object
@@ -295,12 +344,47 @@ nelmio_api_doc:
                             format: password
                         enabled:
                             type: boolean
+                            nullable: true
                         team_id:
                             type: string
                         roles:
                             type: array
                             items:
                                 type: string
+                Balloon:
+                    type: object
+                    properties:
+                        balloonid:
+                            type: integer
+                        time:
+                            type: string
+                        problem:
+                            type: string
+                        contestproblem:
+                            $ref: "#/components/schemas/ContestProblem"
+                        team:
+                            type: string
+                        teamid:
+                            type: integer
+                        location:
+                            type: string
+                            nullable: true
+                        affiliation:
+                            type: string
+                            nullable: true
+                        affiliationid:
+                            type: integer
+                            nullable: true
+                        category:
+                            type: string
+                        total:
+                            type: array
+                            items:
+                                $ref: "#/components/schemas/ContestProblem"
+                        awards:
+                            type: string
+                        done:
+                            type: boolean
                 ClarificationPost:
                     type: object
                     required: [text]
@@ -311,15 +395,19 @@ nelmio_api_doc:
                         problem_id:
                             type: string
                             description: The problem the clarification is for
+                            nullable: true
                         reply_to_id:
                             type: string
                             description: The ID of the clarification this clarification is a reply to
+                            nullable: true
                         from_team_id:
                             type: string
                             description: The team the clarification came from. Only used when adding a clarification as admin
+                            nullable: true
                         to_team_id:
                             type: string
                             description: The team the clarification must be sent to. Only used when adding a clarification as admin
+                            nullable: true
                         time:
                             type: string
                             format: date-time

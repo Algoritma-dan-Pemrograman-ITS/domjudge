@@ -2,6 +2,7 @@
 
 namespace App\Twig;
 
+use App\Entity\BaseApiEntity;
 use App\Entity\Contest;
 use App\Entity\ContestProblem;
 use App\Entity\ExternalJudgement;
@@ -12,6 +13,7 @@ use App\Entity\Language;
 use App\Entity\Submission;
 use App\Entity\SubmissionFile;
 use App\Entity\Testcase;
+use App\Service\AwardService;
 use App\Service\ConfigurationService;
 use App\Service\DOMJudgeService;
 use App\Service\EventLogService;
@@ -22,6 +24,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use SebastianBergmann\Diff\Differ;
 use Symfony\Component\Intl\Countries;
 use Symfony\Component\Intl\Exception\MissingResourceException;
+use Symfony\Component\PropertyAccess\PropertyAccess;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Twig\Environment;
@@ -38,6 +41,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
     protected EntityManagerInterface $em;
     protected SubmissionService $submissionService;
     protected EventLogService $eventLogService;
+    protected AwardService $awards;
     protected TokenStorageInterface $tokenStorage;
     protected AuthorizationCheckerInterface $authorizationChecker;
     protected string $projectDir;
@@ -49,6 +53,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
         EntityManagerInterface        $em,
         SubmissionService             $submissionService,
         EventLogService               $eventLogService,
+        AwardService                  $awards,
         TokenStorageInterface         $tokenStorage,
         AuthorizationCheckerInterface $authorizationChecker,
         string                        $projectDir
@@ -59,6 +64,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
         $this->em                   = $em;
         $this->submissionService    = $submissionService;
         $this->eventLogService      = $eventLogService;
+        $this->awards               = $awards;
         $this->tokenStorage         = $tokenStorage;
         $this->authorizationChecker = $authorizationChecker;
         $this->projectDir           = $projectDir;
@@ -79,6 +85,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
     {
         return [
             new TwigFilter('printtimediff', [$this, 'printtimediff']),
+            new TwigFilter('printremainingminutes', [$this, 'printremainingminutes']),
             new TwigFilter('printtime', [$this, 'printtime']),
             new TwigFilter('printtimeHover', [$this, 'printtimeHover'], ['is_safe' => ['html']]),
             new TwigFilter('printResult', [$this, 'printResult'], ['is_safe' => ['html']]),
@@ -88,6 +95,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
             new TwigFilter('printHost', [$this, 'printHost'], ['is_safe' => ['html']]),
             new TwigFilter('printHosts', [$this, 'printHosts'], ['is_safe' => ['html']]),
             new TwigFilter('printFiles', [$this, 'printFiles'], ['is_safe' => ['html']]),
+            new TwigFilter('printLazyMode', [$this, 'printLazyMode']),
             new TwigFilter('printYesNo', [$this, 'printYesNo']),
             new TwigFilter('printSize', [Utils::class, 'printSize'], ['is_safe' => ['html']]),
             new TwigFilter('testcaseResults', [$this, 'testcaseResults'], ['is_safe' => ['html']]),
@@ -118,6 +126,8 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
             new TwigFilter('problemBadge', [$this, 'problemBadge'], ['is_safe' => ['html']]),
             new TwigFilter('printMetadata', [$this, 'printMetadata'], ['is_safe' => ['html']]),
             new TwigFilter('printWarningContent', [$this, 'printWarningContent'], ['is_safe' => ['html']]),
+            new TwigFilter('entityIdBadge', [$this, 'entityIdBadge'], ['is_safe' => ['html']]),
+            new TwigFilter('medalType', [$this->awards, 'medalType']),
         ];
     }
 
@@ -131,7 +141,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
 
         // These variables mostly exist for the header template.
         return [
-            'current_contest_id'            => $this->dj->getCurrrentContestCookie(),
+            'current_contest_id'            => $this->dj->getCurrentContestCookie(),
             'current_contest'               => $this->dj->getCurrentContest(),
             'current_contests'              => $this->dj->getCurrentContests(),
             'current_public_contest'        => $this->dj->getCurrentContest(-1),
@@ -163,6 +173,18 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
     public function printtimediff(float $start, ?float $end = null): string
     {
         return Utils::printtimediff($start, $end);
+    }
+
+    public function printremainingminutes(float $start, float $end): string
+    {
+        $minutesRemaining = floor(($end - $start)/60, 0);
+        if ($minutesRemaining < 1) {
+            return 'less than 1 minute to go';
+        } elseif ($minutesRemaining == 1) {
+            return '1 minute to go';
+        } else {
+            return $minutesRemaining . ' minutes to go';
+        }
     }
 
     /**
@@ -220,6 +242,22 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
                Utils::printtime($datetime, 'Y-m-d H:i:s (T)') . '">' .
                $this->printtime($datetime, null, $contest) .
                '</span>';
+    }
+
+    public static function printLazyMode(?int $val): string
+    {
+        switch ($val) {
+            case false:
+                return "-";
+            case DOMJudgeService::EVAL_DEMAND:
+                return "On demand";
+            case DOMJudgeService::EVAL_FULL:
+                return "No";
+            case DOMJudgeService::EVAL_LAZY:
+                return "Yes";
+            default:
+                return "Unknown mode $val";
+        }
     }
 
     public static function printYesNo(bool $val): string
@@ -285,7 +323,9 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
 
     public function countryFlag(?string $alpha3CountryCode, bool $showFullname = false): string
     {
-        if (empty($alpha3CountryCode)) return '';
+        if (empty($alpha3CountryCode)) {
+            return '';
+        }
 
         try {
             $countryAlpha2 = strtolower(Countries::getAlpha2Code($alpha3CountryCode));
@@ -333,7 +373,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
                   WHERE t.probid = :probid ORDER BY ranknumber',
                 ['extjudgementid' => $externalJudgementId, 'probid' => $probId]);
 
-            $submissionDone = $externalJudgement ? !empty($externalJudgement->getEndtime()) : false;
+            $submissionDone = $externalJudgement && !empty($externalJudgement->getEndtime());
         } else {
             /** @var Judging|null $judging */
             $judging   = $submission->getJudgings()->first();
@@ -349,7 +389,7 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
                   WHERE t.probid = :probid ORDER BY ranknumber',
                 ['judgingid' => $judgingId, 'probid' => $probId]);
 
-            $submissionDone = $judging ? !empty($judging->getEndtime()) : false;
+            $submissionDone = $judging && !empty($judging->getEndtime());
         }
 
         $results = '';
@@ -563,8 +603,11 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
      * Formats a given hostname. If $full = true, then the full hostname will be printed,
      * else only the local part (for keeping tables readable)
      */
-    public function printHost(string $hostname, bool $full = false): string
+    public function printHost(?string $hostname, bool $full = false): string
     {
+        if ($hostname === null) {
+            return '<span class="nodata">hostname unset</span>';
+        }
         // Shorten the hostname to first label, but not if it's an IP address.
         if (!$full && !preg_match('/^\d{1,3}(\.\d{1,3}){3}$/', $hostname)) {
             $expl     = explode('.', $hostname);
@@ -575,7 +618,30 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
     }
 
     /**
-     * Formats a list of given hostnames, extracting a common prefix.
+     * Extract the longest common prefix of all the provided strings.
+     */
+    private function getCommonPrefix(array $strings): string
+    {
+        $common_prefix = $strings[0];
+        foreach ($strings as $string) {
+            $len = strlen($string);
+            while ($len > 0) {
+                if (substr_compare($common_prefix, $string, 0, $len) == 0) {
+                    break;
+                }
+                $len--;
+            }
+            if ($len == 0) {
+                $common_prefix = "";
+                break;
+            }
+            $common_prefix = substr($common_prefix, 0, $len);
+        }
+        return $common_prefix;
+    }
+
+    /**
+     * Formats a list of given hostnames, extracting a common prefix and suffix.
      */
     public function printHosts(array $hostnames): string
     {
@@ -596,27 +662,28 @@ class TwigExtension extends AbstractExtension implements GlobalsInterface
             }
             $local_parts[] = $hostname;
         }
-        $common_prefix = $local_parts[0];
-        foreach ($local_parts as $local_part) {
-            $len = strlen($local_part);
-            while ($len > 0) {
-                if (substr_compare($common_prefix, $local_part, 0, $len) == 0) {
-                    break;
-                }
-                $len--;
-            }
-            if ($len == 0) {
-                $common_prefix = "";
-                break;
-            }
-            $common_prefix = substr($common_prefix, 0, $len);
-        }
-        if (empty($common_prefix)) {
+
+        // Extract the longest common prefix.
+        $common_prefix = $this->getCommonPrefix($local_parts);
+        $prefix_len = strlen($common_prefix);
+
+        // Extract the longest common suffix.
+        $reversed = array_map('strrev', $local_parts);
+        $common_suffix = strrev($this->getCommonPrefix($reversed));
+        $suffix_len = strlen($common_suffix);
+
+        // Extract the list of remaining parts. This list may contain empty values. If $common_prefix overlaps
+        // $common_suffix, then $common_prefix = $common_suffix = the entire string.
+        $middle_parts = array_map(fn($host) => substr($host, $prefix_len, strlen($host) - $prefix_len - $suffix_len), $local_parts);
+        // Usually the middle parts contain numbers, so use natural sort for them.
+        usort($middle_parts, 'strnatcmp');
+
+        if (empty($common_prefix) && empty($common_suffix)) {
+            // No common prefix nor suffix: list all the names without "{}".
             return implode(", ", array_map([$this, 'printHost'], $hostnames));
         } else {
-            $len_prefix  = strlen($common_prefix);
-            $local_parts = array_map(fn($host) => substr($host, $len_prefix), $local_parts);
-            return $this->printHost($common_prefix . "{" . implode(",", $local_parts) . "}", true);
+            $hosts = $common_prefix . "{" . implode(",", $middle_parts) . "}" . $common_suffix;
+            return $this->printHost($hosts, true);
         }
     }
 
@@ -979,8 +1046,10 @@ EOF;
         $m = current($m);
         switch (count($m)) {
             case 4:
-                // We also have opacity; load that.
+                // We also have opacity; load that and use
+                // RGB of case 3
                 $opacity = hexdec(array_pop($m));
+                // no-break
             case 3:
                 $vals   = array_map("hexdec", $m);
                 $vals[] = $opacity;
@@ -1042,18 +1111,17 @@ EOF;
             return '';
         }
         $metadata = $this->dj->parseMetadata($metadata);
-        $ret      = '<span style="display:inline; margin-left: 5px;">'
-                    . '<i class="fas fa-stopwatch" title="runtime"></i>'
-                    . $metadata['cpu-time'] . 's'
-                    . ' CPU, '
-                    . $metadata['wall-time'] . 's'
-                    . ' wall time, '
-                    . '<i class="fas fa-memory" title="RAM"></i>'
-                    . Utils::printsize((int)($metadata['memory-bytes']))
-                    . ', '
-                    . '<i class="fas fa-exitcode" title="runtime"></i>'
-                    . 'exit-code: ' . $metadata['exitcode'];
-        return $ret;
+        return '<span style="display:inline; margin-left: 5px;">'
+            . '<i class="fas fa-stopwatch" title="runtime"></i>'
+            . $metadata['cpu-time'] . 's'
+            . ' CPU, '
+            . $metadata['wall-time'] . 's'
+            . ' wall time, '
+            . '<i class="fas fa-memory" title="RAM"></i>'
+            . Utils::printsize((int)($metadata['memory-bytes']))
+            . ', '
+            . '<i class="fas fa-exitcode" title="runtime"></i>'
+            . 'exit-code: ' . $metadata['exitcode'];
     }
 
     public function printWarningContent(ExternalSourceWarning $warning): string
@@ -1066,7 +1134,6 @@ EOF;
                 $rows = [];
                 $null = '&lt;null&gt;';
                 foreach ($warning->getContent()['diff'] as $field => $diff) {
-
                     $tdField    = "<td><code>$field</code></td>";
                     $tdUs       = sprintf(
                         '<td><code>%s</code></td>',
@@ -1117,5 +1184,27 @@ EOF;
         }
 
         return '';
+    }
+
+    /**
+     * Get the entity ID badge to display for the given entity.
+     *
+     * When we are in a data source mode that uses external ID's, those will be used and the
+     * internal ID will be shown in a tooltip.
+     *
+     * @param string $idPrefix The prefix to use for the internal ID, if any.
+     */
+    public function entityIdBadge(BaseApiEntity $entity, string $idPrefix = ''): string
+    {
+        $propertyAccessor = PropertyAccess::createPropertyAccessor();
+        $metadata = $this->em->getClassMetadata(get_class($entity));
+        $primaryKeyColumn = $metadata->getIdentifierColumnNames()[0];
+        $externalIdField = $this->eventLogService->externalIdFieldForEntity($entity);
+
+        return $this->twig->render('jury/entity_id_badge.html.twig', [
+            'idPrefix' => $idPrefix,
+            'id' => $propertyAccessor->getValue($entity, $primaryKeyColumn),
+            'externalId' => $externalIdField ? $propertyAccessor->getValue($entity, $externalIdField) : null,
+        ]);
     }
 }

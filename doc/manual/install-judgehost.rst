@@ -13,7 +13,7 @@ System requirements
 ```````````````````
 
 * The operating system is a Linux variant. DOMjudge has mostly
-  been tested with Debian and Ubuntu, but should work on other environments.
+  been tested with Debian and Ubuntu on AMD64, but should work on other environments.
   See our `wiki <https://github.com/DOMjudge/domjudge/wiki/Running-DOMjudge-in-WSL>`_ for information about DOMjudge and WSLv2.
 * It is necessary that you have root access.
 * A TCP/IP network which connects the DOMserver and the judgehosts.
@@ -38,8 +38,6 @@ For Red Hat::
   sudo yum install make pkgconfig sudo libcgroup-devel lsof \
         php-cli php-mbstring php-xml php-process procps-ng
 
-.. _installing-judgehost:
-
 Removing apport
 ---------------
 
@@ -47,6 +45,8 @@ Some systems (like Ubuntu) ship with ``apport``, which conflicts with judging.
 To uninstall it, run::
 
   sudo apt remove apport
+
+.. _installing-judgehost:
 
 Building and installing
 -----------------------
@@ -85,7 +85,8 @@ need a home-directory or password, so the following command would
 suffice to add a user and group ``domjudge-run-2`` with minimal privileges
 with the judgedaemon restricted to CPU core 2::
 
-  sudo useradd -d /nonexistent -U -M -s /bin/false domjudge-run-2
+  sudo groupadd domjudge-run
+  sudo useradd -d /nonexistent -g domjudge-run -M -s /bin/false domjudge-run-2
 
 The ``-2`` suffix corresponds to a judgedaemon bound to CPU core 2
 with the option ``-n 2``, see :ref:`start-judgedaemon`. If you do not
@@ -162,9 +163,9 @@ Optionally the timings can be made more stable by not letting the OS schedule
 any other tasks on the same CPU core the judgedaemon is using:
 ``GRUB_CMDLINE_LINUX_DEFAULT="quiet cgroup_enable=memory swapaccount=1 isolcpus=2"``
 
-On modern distros (e.g. Debian bullseye) which have cgroup v2 enabled by
-default, you need to add ``systemd.unified_cgroup_hierarchy=0`` as well.
-Then run ``update-grub`` and reboot.
+On modern distros (e.g. Debian bullseye and Ubuntu Jammy Jellyfish) which have
+cgroup v2 enabled by default, you need to add ``systemd.unified_cgroup_hierarchy=0``
+as well. Then run ``update-grub`` and reboot.
 After rebooting check that ``/proc/cmdline`` actually contains the
 added kernel options. On VM hosting providers such as Google Cloud or
 DigitalOcean, ``GRUB_CMDLINE_LINUX_DEFAULT`` may be overwritten
@@ -179,6 +180,8 @@ Note that this service will automatically be started if you use the
 ``domjudge-judgehost`` service, see below. Alternatively, you can
 customize the script ``judge/create_cgroups`` as required and run it
 after each boot.
+
+The script `jvm_footprint` can be used to measure the memory overhead of the JVM for languages such as Kotlin and Java.
 
 
 REST API credentials

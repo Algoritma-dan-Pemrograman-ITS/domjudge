@@ -161,8 +161,6 @@ class ImportExportController extends BaseController
             $newProblem = null;
             /** @var Contest|null $contest */
             $contest = $problemFormData['contest'] ?? null;
-            /** @var bool $deleteOldData */
-            $deleteOldData = $problemFormData['delete_old_data'] ?? false;
             if ($contest === null) {
                 $contestId = null;
             } else {
@@ -179,7 +177,7 @@ class ImportExportController extends BaseController
                     $contest = $this->em->getRepository(Contest::class)->find($contestId);
                 }
                 $newProblem = $this->importProblemService->importZippedProblem(
-                    $zip, $clientName, null, $contest, $deleteOldData, $messages
+                    $zip, $clientName, null, $contest, $messages
                 );
                 $allMessages = array_merge($allMessages, $messages);
                 if ($newProblem) {
@@ -197,8 +195,10 @@ class ImportExportController extends BaseController
                 }
             }
 
-            if (!empty($allMessages)) {
-                $this->addFlash('info', implode("\n", $allMessages));
+            foreach (['info', 'warning', 'danger'] as $type) {
+                if (!empty($allMessages[$type])) {
+                    $this->addFlash($type, implode("\n", $allMessages[$type]));
+                }
             }
 
             if ($newProblem !== null) {
@@ -238,7 +238,7 @@ class ImportExportController extends BaseController
             try {
                 $data = Yaml::parseFile($file->getRealPath(), Yaml::PARSE_DATETIME);
             } catch (ParseException $e) {
-                $this->addFlash('danger', "Parse error in YAML/JSON file: " . $e->getMessage());
+                $this->addFlash('danger', "Parse error in YAML/JSON file (" . $file->getClientOriginalName() . "): " . $e->getMessage());
                 return $this->redirectToRoute('jury_import_export');
             }
             if ($this->importExportService->importContestData($data, $message, $cid)) {
@@ -260,7 +260,7 @@ class ImportExportController extends BaseController
             try {
                 $data = Yaml::parseFile($file->getRealPath(), Yaml::PARSE_DATETIME);
             } catch (ParseException $e) {
-                $this->addFlash('danger', "Parse error in YAML/JSON file: " . $e->getMessage());
+                $this->addFlash('danger', "Parse error in YAML/JSON file (" . $file->getClientOriginalName() . "): " . $e->getMessage());
                 return $this->redirectToRoute('jury_import_export');
             }
             if ($this->importExportService->importProblemsData($problemsImportForm->get('contest')->getData(), $data)) {
@@ -389,7 +389,7 @@ class ImportExportController extends BaseController
 
         $teamNames = [];
         foreach ($teams as $team) {
-            $teamNames[$team->getApiId($this->eventLogService)] = $team->getEffectiveName();
+            $teamNames[$team->getIcpcId()] = $team->getEffectiveName();
         }
 
         $awarded       = [];
@@ -435,7 +435,7 @@ class ImportExportController extends BaseController
 
         $collator = new Collator('en_US');
         $collator->sort($honorable);
-        usort($ranked, function(array $a, array $b) use ($collator): int {
+        usort($ranked, function (array $a, array $b) use ($collator): int {
             if ($a['rank'] !== $b['rank']) {
                 return $a['rank'] <=> $b['rank'];
             }
@@ -464,7 +464,7 @@ class ImportExportController extends BaseController
                     $firstToSolve[$problem->getProbid()] = [
                         'problem' => $problem->getShortname(),
                         'problem_name' => $problem->getProblem()->getName(),
-                        'team' => $teamNames[$team->getApiId($this->eventLogService)],
+                        'team' => $teamNames[$team->getIcpcId()],
                         'time' => Utils::scoretime($matrixItem->time, $scoreIsInSeconds),
                     ];
                 }

@@ -21,26 +21,33 @@ use Symfony\Component\HttpFoundation\File\UploadedFile;
  */
 abstract class JuryControllerTest extends BaseTest
 {
-    protected array $roles                          = ['admin'];
-    protected string $addButton                     = '';
-    protected static array $rolesView               = ['admin', 'jury'];
-    protected static array $rolesDisallowed         = ['team'];
-    protected static array $exampleEntries          = ['overwrite_in_class'];
-    protected static string $prefixURL              = 'http://localhost';
-    protected static string $add                    = '/add';
-    protected static string $edit                   = '/edit';
-    protected static string $delete                 = '/delete';
-    protected static array $deleteEntities          = [];
-    protected static array $deleteFixtures          = [];
-    protected static string $shortTag               = '';
-    protected static ?string $addPlus               = null;
-    protected static string $addForm                = '';
-    protected static ?array $deleteExtra            = null;
-    protected static array $addEntities             = [];
-    protected static array $addEntitiesCount        = [];
-    protected static ?string $defaultEditEntityName = null;
-    protected static array $specialFieldOnlyUpdate  = [];
-    protected static array $editEntitiesSkipFields  = [];
+    protected array $roles                            = ['admin'];
+    protected string $addButton                       = '';
+    protected string $editButton                      = ' Edit';
+    protected string $deleteButton                    = ' Delete';
+    protected static array $rolesView                 = ['admin', 'jury'];
+    protected static array $rolesDisallowed           = ['team'];
+    protected static array $exampleEntries            = ['overwrite_in_class'];
+    protected static string $prefixURL                = 'http://localhost';
+    protected static string $add                      = '/add';
+    protected static string $edit                     = '/edit';
+    protected static string $editDefault              = '/edit';
+    protected static string $delete                   = '/delete';
+    protected static string $deleteDefault            = '/delete';
+    protected static array $deleteEntities            = [];
+    protected static string $identifyingEditAttribute = '';
+    protected static string $deleteEntityIdentifier   = '';
+    protected static array $deleteFixtures            = [];
+    protected static string $shortTag                 = '';
+    protected static ?string $addPlus                 = null;
+    protected static string $addForm                  = '';
+    protected static ?array $deleteExtra              = null;
+    protected static array $addEntities               = [];
+    protected static array $addEntitiesCount          = [];
+    protected static ?string $defaultEditEntityName   = null;
+    protected static array $specialFieldOnlyUpdate    = [];
+    protected static array $editEntitiesSkipFields    = [];
+    protected static array $overviewNotShown          = [];
 
     protected function setUp(): void
     {
@@ -157,7 +164,63 @@ abstract class JuryControllerTest extends BaseTest
         }
     }
 
-    public function helperCheckExistence(string $id, $value, array $element): void {
+    /**
+     * Test that jury role can NOT edit or delete an entity for this controller.
+     */
+    public function testCheckEditDeleteEntityJury(): void
+    {
+        $this->roles = ['jury'];
+        $this->logOut();
+        $this->logIn();
+        $this->verifyPageResponse('GET', static::$baseUrl, 200);
+        $this->client->followRedirects(true);
+        $crawler = $this->getCurrentCrawler();
+        // Check if the edit/delete action keys are visible.
+        foreach ([static::$editDefault, static::$deleteDefault, static::$edit, static::$delete] as $identifier) {
+            if ($identifier === '') {
+                continue;
+            }
+            $singlePageLink = null;
+            foreach ($crawler->filter('a') as $node) {
+                if (strpos($node->nodeValue, $identifier) !== false) {
+                    $singlePageLink = $node->getAttribute('href');
+                    break;
+                }
+            }
+            self::assertEquals(null, $singlePageLink, 'Found link ending with '.$identifier);
+        }
+        // Find an ID we can edit/delete.
+        foreach (array_merge(
+            [static::$deleteEntityIdentifier=>array_slice(static::$deleteEntities, 0, 1)],
+            [static::$identifyingEditAttribute=>static::$defaultEditEntityName]) as $identifier => $entityShortName) {
+            if ($identifier === '') {
+                continue;
+            }
+            $em = self::getContainer()->get('doctrine')->getManager();
+            $ent = $em->getRepository(static::$className)->findOneBy([$identifier => $entityShortName]);
+            $entityUrl = static::$baseUrl . '/' . $ent->{static::$getIDFunc}();
+            foreach ([static::$delete=>static::$deleteDefault,
+                      static::$edit=>static::$editDefault] as $postfix => $default) {
+                $code = 403;
+                if ($postfix === '') {
+                    $code = 404;
+                }
+                $this->verifyPageResponse(
+                    'GET',
+                    $entityUrl . $default,
+                    $code
+                );
+            }
+            // Check that the buttons are not visible, on the page itself.
+            $this->verifyPageResponse('GET', $entityUrl, 200);
+            foreach ([$this->editButton, $this->deleteButton] as $button) {
+                self::assertSelectorNotExists('a:contains("' . $button . '")');
+            }
+        }
+    }
+
+    public function helperCheckExistence(string $id, $value, array $element): void
+    {
         if (in_array($id, static::$addEntitiesShown)) {
             $tmpValue = $element[$id];
             if (is_bool($value)) {
@@ -182,6 +245,7 @@ abstract class JuryControllerTest extends BaseTest
         if (static::$add !== '') {
             self::assertSelectorExists('a:contains(' . $this->addButton . ')');
             foreach (static::$addEntities as $element) {
+                $combinedValues = [];
                 $formFields = [];
                 // First fill with default values, the 0th item of the array
                 // Overwrite with data to test with.
@@ -195,6 +259,7 @@ abstract class JuryControllerTest extends BaseTest
                         }
                         $formId = str_replace('.', '][', $id);
                         $formFields[static::$addForm . $formId . "]"] = $field;
+                        $combinedValues[$id] = $field;
                     }
                 }
                 $this->verifyPageResponse('GET', static::$baseUrl . static::$add, 200);
@@ -222,6 +287,12 @@ abstract class JuryControllerTest extends BaseTest
                     }
                 }
                 $this->client->submit($form);
+                $this->client->followRedirect();
+                foreach ($combinedValues as $key => $value) {
+                    if (!is_array($value) && !in_array($key, static::$overviewNotShown)) {
+                        self::assertSelectorExists('body:contains("' . $value . '")');
+                    }
+                }
             }
             $this->verifyPageResponse('GET', static::$baseUrl, 200);
             foreach (static::$addEntities as $element) {
@@ -257,6 +328,7 @@ abstract class JuryControllerTest extends BaseTest
         $this->loadFixtures(static::$deleteFixtures);
         $this->verifyPageResponse('GET', static::$baseUrl, 200);
         if (static::$edit !== '') {
+            $singlePageLink = null;
             $this->client->followRedirects(true);
             $crawler = $this->getCurrentCrawler();
             foreach ($crawler->filter('a') as $node) {
@@ -279,13 +351,16 @@ abstract class JuryControllerTest extends BaseTest
             $button = $this->client->getCrawler()->selectButton('Save');
             $form = $button->form($formFields, 'POST');
             $this->client->submit($form);
-            self::assertNotEquals($this->client->getResponse()->getStatusCode(), 500);
+            self::assertNotEquals(500, $this->client->getResponse()->getStatusCode());
             $this->verifyPageResponse('GET', $singlePageLink, 200);
             foreach ($formDataValues as $id => $element) {
                 if (in_array($formDataKeys[$id], static::$addEntitiesShown)) {
                     self::assertSelectorExists('body:contains("' . $element . '")');
                 }
             }
+            // Check that the Edit button is visible on an entity page.
+            $this->verifyPageResponse('GET', substr($editLink, 0, strlen($editLink)-strlen(static::$edit)), 200);
+            self::assertSelectorExists('a:contains("' . $this->editButton . '")');
         }
     }
 
@@ -313,21 +388,26 @@ abstract class JuryControllerTest extends BaseTest
      *
      * @dataProvider provideDeleteEntity
      */
-    public function testDeleteEntity(string $identifier, string $entityShortName): void
+    public function testDeleteEntity(string $entityShortName): void
     {
         $this->roles = ['admin'];
         $this->logOut();
         $this->logIn();
         $this->loadFixtures(static::$deleteFixtures);
-        $this->verifyPageResponse('GET', static::$baseUrl, 200);
         // Find a CID we can delete.
         $em = self::getContainer()->get('doctrine')->getManager();
-        $ent = $em->getRepository(static::$className)->findOneBy([$identifier => $entityShortName]);
+        $ent = $em->getRepository(static::$className)->findOneBy([static::$deleteEntityIdentifier => $entityShortName]);
+        $entityUrl = static::$baseUrl . '/' . $ent->{static::$getIDFunc}();
+        // Check that the Delete button is visible on an entity page.
+        $this->verifyPageResponse('GET', $entityUrl, 200);
+        self::assertSelectorExists('a:contains("' . $this->deleteButton . '")');
+        // Follow the route via the overview page.
+        $this->verifyPageResponse('GET', static::$baseUrl, 200);
         self::assertSelectorExists('i[class*=fa-trash-alt]');
         self::assertSelectorExists('body:contains("' . $entityShortName . '")');
         $this->verifyPageResponse(
             'GET',
-            static::$baseUrl . '/' . $ent->{static::$getIDFunc}() . static::$delete,
+            $entityUrl . static::$delete,
             200
         );
         $this->client->submitForm('Delete', []);
@@ -340,10 +420,8 @@ abstract class JuryControllerTest extends BaseTest
     public function provideDeleteEntity(): Generator
     {
         if (static::$delete !== '') {
-            foreach (static::$deleteEntities as $name => $entityList) {
-                foreach ($entityList as $entity) {
-                    yield [$name, $entity];
-                }
+            foreach (static::$deleteEntities as $entity) {
+                yield [$entity];
             }
         } else {
             self::markTestSkipped("No deletable entity.");

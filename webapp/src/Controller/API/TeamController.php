@@ -28,9 +28,10 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
  * @Rest\Route("/contests/{cid}/teams")
  * @OA\Tag(name="Teams")
  * @OA\Parameter(ref="#/components/parameters/cid")
- * @OA\Response(response="404", ref="#/components/responses/NotFound")
- * @OA\Response(response="401", ref="#/components/responses/Unauthorized")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
+ * @OA\Response(response="404", ref="#/components/responses/NotFound")
  */
 class TeamController extends AbstractRestController
 {
@@ -42,8 +43,7 @@ class TeamController extends AbstractRestController
         ConfigurationService $config,
         EventLogService $eventLogService,
         AssetUpdateService $assetUpdater
-    )
-    {
+    ) {
         parent::__construct($entityManager, $dj, $config, $eventLogService);
         $this->assetUpdater = $assetUpdater;
     }
@@ -140,11 +140,10 @@ class TeamController extends AbstractRestController
 
         $teamPhoto = $this->dj->assetPath($id, 'team', true);
 
-        if (!file_exists($teamPhoto)) {
-            throw new NotFoundHttpException('Team photo not found');
+        if ($teamPhoto && file_exists($teamPhoto)) {
+            return static::sendBinaryFileResponse($request, $teamPhoto);
         }
-
-        return static::sendBinaryFileResponse($request, $teamPhoto);
+        throw new NotFoundHttpException('Team photo not found');
     }
 
     /**

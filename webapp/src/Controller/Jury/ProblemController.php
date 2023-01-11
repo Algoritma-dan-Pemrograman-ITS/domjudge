@@ -377,9 +377,18 @@ class ProblemController extends BaseController
             throw new NotFoundHttpException(sprintf('Problem with ID %s not found', $probId));
         }
 
+        $lockedProblem = false;
+        foreach ($problem->getContestProblems() as $contestProblem) {
+            /** @var ContestProblem $contestProblem */
+            if ($contestProblem->getContest()->isLocked()) {
+                $this->addFlash('warning', 'Cannot edit problem, it belongs to locked contest c' . $contestProblem->getContest()->getCid());
+                $lockedProblem = true;
+            }
+        }
+
         $problemAttachmentForm = $this->createForm(ProblemAttachmentType::class);
         $problemAttachmentForm->handleRequest($request);
-        if ($this->isGranted('ROLE_ADMIN') && $problemAttachmentForm->isSubmitted() && $problemAttachmentForm->isValid()) {
+        if ($this->isGranted('ROLE_ADMIN') && $problemAttachmentForm->isSubmitted() && $problemAttachmentForm->isValid() && !$lockedProblem) {
             /** @var UploadedFile $file */
             $file = $problemAttachmentForm->get('content')->getData();
 
@@ -432,6 +441,7 @@ class ProblemController extends BaseController
             'showContest' => count($this->dj->getCurrentContests()) > 1,
             'showExternalResult' => $this->config->get('data_source') ===
                 DOMJudgeService::DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL,
+            'lockedProblem' => $lockedProblem,
             'refresh' => [
                 'after' => 15,
                 'url' => $this->generateUrl('jury_problem', ['probId' => $problem->getProbid()]),
@@ -473,6 +483,15 @@ class ProblemController extends BaseController
             throw new NotFoundHttpException(sprintf('Problem with ID %s not found', $probId));
         }
 
+        $lockedContest = false;
+        foreach ($problem->getContestProblems() as $contestproblem) {
+            /** @var contestproblem $contestproblem */
+            if ($contestproblem->getcontest()->isLocked()) {
+                $lockedContest = true;
+                break;
+            }
+        }
+
         $testcaseData = $this->em->createQueryBuilder()
             ->from(Testcase::class, 'tc', 'tc.ranknumber')
             ->join('tc.content', 'content')
@@ -488,6 +507,10 @@ class ProblemController extends BaseController
         $testcases = array_map(fn($data) => $data[0], $testcaseData);
 
         if ($request->isMethod('POST')) {
+            if ($lockedContest) {
+                $this->addFlash('danger', 'Cannot edit problem / testcases, it belongs to locked contest c' . $contestProblem->getContest()->getCid());
+                return $this->redirectToRoute('jury_problem', ['probId' => $problem->getProbid()]);
+            }
             $messages      = [];
             $maxrank       = 0;
             $outputLimit   = $this->config->get('output_limit');
@@ -688,11 +711,16 @@ class ProblemController extends BaseController
             $known_md5s[$input_md5] = $rank;
         }
 
+        if ($lockedContest) {
+            $this->addFlash('warning',
+                'Problem belongs to a locked contest, disallowing editing.');
+        }
         $data = [
             'problem' => $problem,
             'testcases' => $testcases,
             'testcaseData' => $testcaseData,
             'extensionMapping' => Testcase::EXTENSION_MAPPING,
+            'allowEdit' => $this->isGranted('ROLE_ADMIN') && !$lockedContest,
         ];
 
         return $this->render('jury/problem_testcases.html.twig', $data);
@@ -711,6 +739,14 @@ class ProblemController extends BaseController
         $problem = $this->em->getRepository(Problem::class)->find($probId);
         if (!$problem) {
             throw new NotFoundHttpException(sprintf('Problem with ID %s not found', $probId));
+        }
+
+        foreach ($problem->getContestProblems() as $contestProblem) {
+            /** @var ContestProblem $contestProblem */
+            if ($contestProblem->getContest()->isLocked()) {
+                $this->addFlash('danger', 'Cannot edit problem, it belongs to locked contest c' . $contestProblem->getContest()->getCid());
+                return $this->redirectToRoute('jury_problem', ['probId' => $problem->getProbid()]);
+            }
         }
 
         /** @var Testcase[] $testcases */
@@ -838,6 +874,14 @@ class ProblemController extends BaseController
             throw new NotFoundHttpException(sprintf('Problem with ID %s not found', $probId));
         }
 
+        foreach ($problem->getContestProblems() as $contestProblem) {
+            /** @var ContestProblem $contestProblem */
+            if ($contestProblem->getContest()->isLocked()) {
+                $this->addFlash('danger', 'Cannot edit problem, it belongs to locked contest c' . $contestProblem->getContest()->getCid());
+                return $this->redirectToRoute('jury_problem', ['probId' => $problem->getProbid()]);
+            }
+        }
+
         $form = $this->createForm(ProblemType::class, $problem);
 
         $form->handleRequest($request);
@@ -849,15 +893,13 @@ class ProblemController extends BaseController
         }
 
         $data       = [];
-        $uploadForm = $this->createForm(ProblemUploadType::class, $data, ['show_delete_old_data' => true]);
+        $uploadForm = $this->createForm(ProblemUploadType::class, $data);
         $uploadForm->handleRequest($request);
 
         if ($uploadForm->isSubmitted() && $uploadForm->isValid()) {
             $data = $uploadForm->getData();
             /** @var UploadedFile $archive */
             $archive  = $data['archive'];
-            /** @var bool $deleteOldData */
-            $deleteOldData = $data['delete_old_data'] ?? false;
             $messages = [];
 
             /** @var Contest|null $contest */
@@ -874,7 +916,7 @@ class ProblemController extends BaseController
                 $zip        = $this->dj->openZipFile($archive->getRealPath());
                 $clientName = $archive->getClientOriginalName();
                 if ($this->importProblemService->importZippedProblem(
-                    $zip, $clientName, $problem, $contest, $deleteOldData, $messages
+                    $zip, $clientName, $problem, $contest, $messages
                 )) {
                     $this->dj->auditlog('problem', $problem->getProbid(), 'upload zip', $clientName);
                 } else {
@@ -882,15 +924,17 @@ class ProblemController extends BaseController
                     return $this->redirectToRoute('jury_problem', ['probId' => $problem->getProbid()]);
                 }
             } catch (Exception $e) {
-                $messages[] = $e->getMessage();
+                $messages['danger'][] = $e->getMessage();
             } finally {
                 if (isset($zip)) {
                     $zip->close();
                 }
             }
 
-            if (!empty($messages)) {
-                $this->addFlash('info', implode("\n", $messages));
+            foreach (['info', 'warning', 'danger'] as $type) {
+                if (!empty($messages[$type])) {
+                    $this->addFlash($type, implode("\n", $messages[$type]));
+                }
             }
 
             return $this->redirectToRoute('jury_problem', ['probId' => $problem->getProbid()]);
@@ -913,6 +957,14 @@ class ProblemController extends BaseController
         $problem = $this->em->getRepository(Problem::class)->find($probId);
         if (!$problem) {
             throw new NotFoundHttpException(sprintf('Problem with ID %s not found', $probId));
+        }
+
+        foreach ($problem->getContestProblems() as $contestProblem) {
+            /** @var ContestProblem $contestProblem */
+            if ($contestProblem->getContest()->isLocked()) {
+                $this->addFlash('danger', 'Cannot delete problem, it belongs to locked contest c' . $contestProblem->getContest()->getCid());
+                return $this->redirectToRoute('jury_problem', ['probId' => $probId]);
+            }
         }
 
         return $this->deleteEntities($request, $this->em, $this->dj, $this->eventLogService, $this->kernel,
@@ -946,7 +998,16 @@ class ProblemController extends BaseController
             throw new NotFoundHttpException(sprintf('Attachment with ID %s not found', $attachmentId));
         }
 
-        $probId = $attachment->getProblem()->getProbid();
+        $problem = $attachment->getProblem();
+        $probId = $problem->getProbid();
+
+        foreach ($problem->getContestProblems() as $contestProblem) {
+            /** @var ContestProblem $contestProblem */
+            if ($contestProblem->getContest()->isLocked()) {
+                $this->addFlash('danger', 'Cannot edit problem, it belongs to locked contest c' . $contestProblem->getContest()->getCid());
+                return $this->redirectToRoute('jury_problem', ['probId' => $probId]);
+            }
+        }
 
         return $this->deleteEntities($request, $this->em, $this->dj, $this->eventLogService, $this->kernel,
                                      [$attachment], $this->generateUrl('jury_problem', ['probId' => $probId]));
@@ -963,8 +1024,15 @@ class ProblemController extends BaseController
         if (!$testcase) {
             throw new NotFoundHttpException(sprintf('Testcase with ID %s not found', $testcaseId));
         }
-        $testcase->setDeleted(true);
         $problem = $testcase->getProblem();
+        foreach ($problem->getContestProblems() as $contestProblem) {
+            /** @var ContestProblem $contestProblem */
+            if ($contestProblem->getContest()->isLocked()) {
+                $this->addFlash('danger', 'Cannot edit problem, it belongs to locked contest c' . $contestProblem->getContest()->getCid());
+                return $this->redirectToRoute('jury_problem', ['probId' => $problem->getProbid()]);
+            }
+        }
+        $testcase->setDeleted(true);
         $testcase->setProblem(null);
         $oldRank = $testcase->getRank();
 
@@ -1048,10 +1116,10 @@ class ProblemController extends BaseController
                           ->select('j')
                           ->join('j.submission', 's')
                           ->join('s.team', 't')
-                          ->join('t.category', 'tc')
                           ->andWhere('j.valid = true')
-                          ->andWhere('tc.visible = true')
+                          ->andWhere('j.result != :compiler_error')
                           ->andWhere('s.problem = :probId')
+                          ->setParameter('compiler_error', 'compiler-error')
                           ->setParameter('probId', $probId);
         if ($contestId > -1) {
             $query->andWhere('s.contest = :contestId')

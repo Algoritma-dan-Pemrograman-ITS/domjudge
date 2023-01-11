@@ -5,6 +5,7 @@ use App\Validator\Constraints\Identifier;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
+use OpenApi\Annotations as OA;
 use JMS\Serializer\Annotation as Serializer;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Component\Validator\Constraints as Assert;
@@ -109,6 +110,7 @@ class Language extends BaseApiEntity
      *     options={"comment"="The description used in the UI for the entry point field."},
      *     nullable=true)
      * @Serializer\SerializedName("entry_point_name")
+     * @OA\Property(nullable=true)
      */
     private ?string $entry_point_description = null;
 
@@ -124,6 +126,21 @@ class Language extends BaseApiEntity
      * @Serializer\Exclude()
      */
     private Collection $submissions;
+
+    /**
+     * @Serializer\VirtualProperty
+     * @Serializer\Type("string")
+     * @Serializer\SerializedName("compile_executable_hash")
+     * @OA\Property(nullable=true)
+     */
+    public function getCompileExecutableHash(): ?string
+    {
+        if ($this->compile_executable !== null) {
+            return $this->compile_executable->getImmutableExecutable()->getHash();
+        } else {
+            return null;
+        }
+    }
 
     public function setLangid(string $langid): Language
     {
@@ -296,6 +313,8 @@ class Language extends BaseApiEntity
                 return 'prolog';
             case 'rb':
                 return 'ruby';
+            case 'rs':
+                return 'rust';
         }
         return $this->getLangid();
     }

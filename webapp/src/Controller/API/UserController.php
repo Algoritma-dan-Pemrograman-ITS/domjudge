@@ -25,9 +25,10 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 /**
  * @Rest\Route("/users", defaults={"_format" = "json"})
  * @OA\Tag(name="Users")
- * @OA\Response(response="404", ref="#/components/responses/NotFound")
- * @OA\Response(response="401", ref="#/components/responses/Unauthorized")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
+ * @OA\Response(response="404", ref="#/components/responses/NotFound")
  */
 class UserController extends AbstractRestController
 {
@@ -48,7 +49,6 @@ class UserController extends AbstractRestController
      * Add one or more groups.
      * @Rest\Post("/groups")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\RequestBody(
      *     required=true,
      *     @OA\MediaType(
@@ -84,12 +84,11 @@ class UserController extends AbstractRestController
             throw new BadRequestHttpException('Supply exactly one of \'json\' or \'tsv\'');
         }
         $message = null;
-        if ($tsvFile && ($result = $this->importExportService->importTsv('groups', $tsvFile, $message))) {
-            // TODO: better return all groups here
-            return "$result new group(s) successfully added.";
-        } elseif ($jsonFile && ($result = $this->importExportService->importJson('groups', $jsonFile, $message))) {
-            // TODO: better return all groups here
-            return "$result new group(s) successfully added.";
+        $result = -1;
+        if ((($tsvFile && ($result = $this->importExportService->importTsv('groups', $tsvFile, $message))) ||
+             ($jsonFile && ($result = $this->importExportService->importJson('groups', $jsonFile, $message)))) &&
+            $result >= 0) {
+             return "$result new group(s) successfully added.";
         } else {
             throw new BadRequestHttpException("Error while adding groups: $message");
         }
@@ -100,7 +99,6 @@ class UserController extends AbstractRestController
      *
      * @Rest\Post("/organizations")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\RequestBody(
      *     required=true,
      *     @OA\MediaType(
@@ -126,7 +124,7 @@ class UserController extends AbstractRestController
         /** @var UploadedFile $jsonFile */
         $jsonFile = $request->files->get('json') ?: [];
         $message = null;
-        if ($result = $this->importExportService->importJson('organizations', $jsonFile, $message)) {
+        if ($result = $this->importExportService->importJson('organizations', $jsonFile, $message) && $result >= 0) {
             // TODO: better return all organizations here
             return "$result new organization(s) successfully added.";
         } else {
@@ -138,7 +136,6 @@ class UserController extends AbstractRestController
      * Add one or more teams.
      * @Rest\Post("/teams")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\RequestBody(
      *     required=true,
      *     @OA\MediaType(
@@ -174,10 +171,9 @@ class UserController extends AbstractRestController
             throw new BadRequestHttpException('Supply exactly one of \'json\' or \'tsv\'');
         }
         $message = null;
-        if ($tsvFile && ($result = $this->importExportService->importTsv('teams', $tsvFile, $message))) {
-            // TODO: better return all teams here?
-            return "$result new team(s) successfully added.";
-        } elseif ($jsonFile && ($result = $this->importExportService->importJson('teams', $jsonFile, $message))) {
+        if ((($tsvFile && ($result = $this->importExportService->importTsv('teams', $tsvFile, $message))) ||
+             ($jsonFile && ($result = $this->importExportService->importJson('teams', $jsonFile, $message)))) &&
+            $result >= 0) {
             // TODO: better return all teams here?
             return "$result new team(s) successfully added.";
         } else {
@@ -189,7 +185,6 @@ class UserController extends AbstractRestController
      * Add accounts to teams.
      * @Rest\Post("/accounts")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\RequestBody(
      *     required=true,
      *     @OA\MediaType(
@@ -218,7 +213,7 @@ class UserController extends AbstractRestController
      * )
      * @OA\Response(
      *     response="200",
-     *     description="Returns a (currently meaningless) status message.",
+     *     ref="#/components/responses/PostAccountResponse"
      * )
      *
      * @throws BadRequestHttpException
@@ -242,10 +237,9 @@ class UserController extends AbstractRestController
         }
 
         $message = null;
-        if ($tsvFile && ($result = $this->importExportService->importTsv('accounts', $tsvFile, $message))) {
-            // TODO: better return all accounts here?
-            return "$result new account(s) successfully added.";
-        } elseif ($jsonFile && ($result = $this->importExportService->importJson('accounts', $jsonFile, $message))) {
+        if ((($tsvFile && ($result = $this->importExportService->importTsv('accounts', $tsvFile, $message))) ||
+             ($jsonFile && ($result = $this->importExportService->importJson('accounts', $jsonFile, $message)))) &&
+            $result >= 0) {
             // TODO: better return all accounts here?
             return "$result new account(s) successfully added.";
         } else {

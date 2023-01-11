@@ -53,6 +53,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * @Rest\Route("/judgehosts")
  * @OA\Tag(name="Judgehosts")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
  */
 class JudgehostController extends AbstractFOSRestController
 {
@@ -183,7 +185,9 @@ class JudgehostController extends AbstractFOSRestController
             ->andWhere('j.judgingid = jt.jobid')
             ->andWhere('jr.runresult IS NULL')
             ->andWhere('j.valid = 1 OR r.valid = 1')
+            ->andWhere('j.result != :compiler_error')
             ->setParameter('hostname', $hostname)
+            ->setParameter('compiler_error', 'compiler-error')
             ->getQuery()
             ->getResult();
 
@@ -237,9 +241,9 @@ class JudgehostController extends AbstractFOSRestController
         if ($judgehost) {
             $judgehost->setEnabled($request->request->getBoolean('enabled'));
             $this->em->flush();
+            return [$judgehost];
         }
-
-        return [$judgehost];
+        throw new NotFoundHttpException(sprintf('Judgehost with hostname \'%s\' not found', $hostname));
     }
 
     /**
@@ -321,9 +325,14 @@ class JudgehostController extends AbstractFOSRestController
         }
 
         if ($request->request->has('output_compile')) {
-            if ($request->request->has('entry_point')) {
+            // Note: we use ->get here instead of ->has since entry_point can be the empty string and then we do not
+            // want to update the submission or send out an update event
+            if ($request->request->get('entry_point')) {
                 $this->em->wrapInTransaction(function () use ($query, $request, &$judging) {
                     $submission = $judging->getSubmission();
+                    if ($submission->getEntryPoint() === $request->request->get('entry_point')) {
+                        return;
+                    }
                     $submission->setEntryPoint($request->request->get('entry_point'));
                     $this->em->flush();
                     $submissionId = $submission->getSubmitid();
@@ -806,13 +815,15 @@ class JudgehostController extends AbstractFOSRestController
             ->setJudgehostlog($judgehostlog)
             ->setTime(Utils::now())
             ->setDisabled($disabled);
-
         $this->em->persist($error);
+        // Even if there are no remaining judge tasks for this judging open (which is covered by the transaction below),
+        // we need to mark this judging as internal error.
+        $judging->setInternalError($error);
         $this->em->flush();
 
         if ($field_name !== null) {
             // Disable any outstanding judgetasks with the same script that have not been claimed yet.
-            $this->em->wrapInTransaction(function (EntityManager $em) use($field_name, $disabled_id, $error) {
+            $this->em->wrapInTransaction(function (EntityManager $em) use ($field_name, $disabled_id, $error) {
                 $judgingids = $em->getConnection()->executeQuery(
                     'SELECT DISTINCT jobid'
                     . ' FROM judgetask'
@@ -1008,6 +1019,7 @@ class JudgehostController extends AbstractFOSRestController
 
         $oldResult = $judging->getResult();
 
+        $lazyEval = DOMJudgeService::EVAL_LAZY;
         if (($result = SubmissionService::getFinalResult($runresults, $resultsPrio)) !== null) {
             // Lookup global lazy evaluation of results setting and possible problem specific override.
             $lazyEval    = $this->config->get('lazy_eval_results');
@@ -1025,7 +1037,7 @@ class JudgehostController extends AbstractFOSRestController
                     break;
                 }
             }
-            if (!$hasNullResults || $lazyEval) {
+            if (!$hasNullResults || $lazyEval != DOMJudgeService::EVAL_FULL) {
                 // NOTE: setting endtime here determines in testcases_GET
                 // whether a next testcase will be handed out.
                 $judging->setEndtime(Utils::now());
@@ -1040,7 +1052,7 @@ class JudgehostController extends AbstractFOSRestController
                     throw new BadMethodCallException('internal bug: the evaluated result changed during judging');
                 }
 
-                if ($lazyEval) {
+                if ($lazyEval != DOMJudgeService::EVAL_FULL) {
                     // We don't want to continue on this problem, even if there's spare resources.
                     $this->em->getConnection()->executeStatement(
                         'UPDATE judgetask SET valid=0, priority=:priority'
@@ -1092,7 +1104,7 @@ class JudgehostController extends AbstractFOSRestController
             }
         }
 
-        return $judging->getResult() === null || $judging->getJudgeCompletely() || !$lazyEval;
+        return $judging->getResult() === null || $judging->getJudgeCompletely() || $lazyEval == DOMJudgeService::EVAL_FULL;
     }
 
     private function maybeUpdateActiveJudging(Judging $judging): void
@@ -1192,7 +1204,7 @@ class JudgehostController extends AbstractFOSRestController
      */
     public function getFilesAction(string $type, string $id): array
     {
-        switch($type) {
+        switch ($type) {
             case 'source':
                 return $this->getSourceFiles($id);
             case 'testcase':
@@ -1380,7 +1392,7 @@ class JudgehostController extends AbstractFOSRestController
         // This is case 2.a) from above: start something new.
         // This runs transactional to prevent a queue task being picked up twice.
         $judgetasks = null;
-        $this->em->wrapInTransaction(function() use ($judgehost, $max_batchsize, &$judgetasks) {
+        $this->em->wrapInTransaction(function () use ($judgehost, $max_batchsize, &$judgetasks) {
             $jobid = $this->em->createQueryBuilder()
                 ->from(QueueTask::class, 'qt')
                 ->select('qt.jobid')

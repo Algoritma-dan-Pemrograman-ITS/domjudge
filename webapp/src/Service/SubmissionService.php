@@ -39,7 +39,10 @@ class SubmissionService
         'ACCEPTED' => 'CORRECT',
         'WRONG_ANSWER' => 'WRONG-ANSWER',
         'TIME_LIMIT_EXCEEDED' => 'TIMELIMIT',
-        'RUN_TIME_ERROR' => 'RUN-ERROR'
+        'RUN_TIME_ERROR' => 'RUN-ERROR',
+        'COMPILER_ERROR' => 'COMPILER-ERROR',
+        'NO_OUTPUT' => 'NO-OUTPUT',
+        'OUTPUT_LIMIT' => 'OUTPUT-LIMIT'
     ];
 
     protected EntityManagerInterface $em;
@@ -212,6 +215,12 @@ class SubmissionService
                 ->setParameter('categoryid', $restrictions['categoryid']);
         }
 
+        if (isset($restrictions['visible'])) {
+            $queryBuilder
+                ->innerJoin('t.category', 'cat')
+                ->andWhere('cat.visible = true');
+        }
+
         if (isset($restrictions['probid'])) {
             $queryBuilder
                 ->andWhere('s.problem = :probid')
@@ -267,7 +276,8 @@ class SubmissionService
             'correct' => 'j.result LIKE \'correct\'',
             'ignored' => 's.valid = 0',
             'unverified' => 'j.verified = 0 AND j.result IS NOT NULL',
-            'queued' => 'j.result IS NULL'
+            'queued' => 'j.result IS NULL AND j.starttime IS NULL',
+            'judging' => 'j.starttime IS NOT NULL AND j.endtime IS NULL'
         ];
         foreach ($countQueryExtras as $count => $countQueryExtra) {
             $countQueryBuilder = (clone $queryBuilder)->select('COUNT(s.submitid) AS cnt');
@@ -431,6 +441,10 @@ class SubmissionService
                 sprintf("The contest is closed, no submissions accepted. [c%d]", $contest->getCid()));
         }
 
+        if (!$contest->getAllowSubmit()) {
+            throw new BadRequestHttpException('Submissions for contest (temporarily) disabled');
+        }
+
         if (!$language->getAllowSubmit()) {
             throw new BadRequestHttpException(
                 sprintf("Language '%s' not found in database or not submittable.", $language->getLangid()));
@@ -528,12 +542,14 @@ class SubmissionService
                 $fileResult = self::getExpectedResults(file_get_contents($file->getRealPath()),
                     $this->config->get('results_remap'));
                 if ($fileResult === false) {
-                        $message = "Found more than one @EXPECTED_RESULTS@ in file.";
+                        $message = sprintf("Found more than one @EXPECTED_RESULTS@ in file '%s'.",
+                            $file->getClientOriginalName());
                         return null;
                 }
                 if ($fileResult !== null) {
                     if ($results !== null) {
-                        $message = "Found more than one file with @EXPECTED_RESULTS@.";
+                        $message = sprintf("Found more than one file with @EXPECTED_RESULTS@, e.g. in '%s'.",
+                            $file->getClientOriginalName());
                         return null;
                     }
                     $results = $fileResult;

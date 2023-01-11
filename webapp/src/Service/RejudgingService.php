@@ -85,7 +85,6 @@ class RejudgingService
             $this->em->flush();
         }
 
-
         $log = '';
         $singleJudging = (count($judgings) == 1);
         $index = 0;
@@ -273,6 +272,7 @@ class RejudgingService
                         ->from(JudgingRun::class, 'r')
                         ->select('r.runid')
                         ->andWhere('r.judging = :judgingid')
+                        ->andWhere('r.runresult IS NOT NULL')
                         ->setParameter('judgingid', $submission['judgingid'])
                         ->getQuery()
                         ->getResult();

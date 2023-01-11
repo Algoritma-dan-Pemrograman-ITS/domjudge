@@ -44,8 +44,7 @@ class SecurityController extends AbstractController
         Request $request,
         AuthorizationCheckerInterface $authorizationChecker,
         AuthenticationUtils $authUtils
-    ): Response
-    {
+    ): Response {
         $allowIPAuth = false;
         $authmethods = $this->config->get('auth_methods');
 
@@ -98,8 +97,7 @@ class SecurityController extends AbstractController
         Request $request,
         AuthorizationCheckerInterface $authorizationChecker,
         UserPasswordHasherInterface $passwordHasher
-    ): Response
-    {
+    ): Response {
         // Redirect if already logged in
         if ($authorizationChecker->isGranted('IS_AUTHENTICATED_FULLY')) {
             return $this->redirect($this->generateUrl('root'));

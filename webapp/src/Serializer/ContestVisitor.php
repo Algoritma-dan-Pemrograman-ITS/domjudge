@@ -65,6 +65,8 @@ class ContestVisitor implements EventSubscriberInterface
         // Banner
         if ($banner = $this->dj->assetPath($id, 'contest', true)) {
             $imageSize = Utils::getImageSize($banner);
+            $parts     = explode('.', $banner);
+            $extension = $parts[count($parts) - 1];
 
             $route = $this->dj->apiRelativeUrl(
                 'v4_contest_banner', ['id' => $id]
@@ -74,7 +76,15 @@ class ContestVisitor implements EventSubscriberInterface
                 'banner',
                 null
             );
-            $visitor->visitProperty($property, [['href' => $route, 'mime' => mime_content_type($banner), 'width' => $imageSize[0], 'height' => $imageSize[1]]]);
+            $visitor->visitProperty($property, [
+                [
+                    'href'     => $route,
+                    'mime'     => mime_content_type($banner),
+                    'width'    => $imageSize[0],
+                    'height'   => $imageSize[1],
+                    'filename' => 'banner.' . $extension,
+                ]
+            ]);
         }
     }
 }

@@ -6,23 +6,25 @@ use App\Entity\Contest;
 use App\Entity\JudgeTask;
 use App\Entity\QueueTask;
 use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\DomCrawler\Crawler;
 
 class ContestControllerTest extends JuryControllerTest
 {
     protected static string  $identifyingEditAttribute = 'shortname';
-    protected static ?string $defaultEditEntityName    = 'demoprac';
+    protected static ?string $defaultEditEntityName    = 'demo';
     protected static string  $baseUrl                  = '/jury/contests';
-    protected static array   $exampleEntries           = ['Demo contest', 'Demo practice session'];
+    protected static array   $exampleEntries           = ['Demo contest'];
     protected static string  $shortTag                 = 'contest';
-    protected static array   $deleteEntities           = ['name' => ['Demo practice session']];
+    protected static array   $deleteEntities           = ['Demo contest'];
+    protected static string  $deleteEntityIdentifier   = 'name';
     protected static string  $getIDFunc                = 'getCid';
     protected static string  $className                = Contest::class;
     protected static array $DOM_elements               = ['h1'                            => ['Contests'],
                                                           'h3'                            => ['admin' => ['Current contests', 'All available contests'],
                                                              'jury' => []],
                                                           'a.btn[title="Import contest"]' => ['admin' => [" Import contest"],'jury'=>[]]];
-    protected static ?array $deleteExtra               = ['pageurl'   => '/jury/contests/2',
-                                                          'deleteurl' => '/jury/contests/2/problems/3/delete',
+    protected static ?array $deleteExtra               = ['pageurl'   => '/jury/contests/1',
+                                                          'deleteurl' => '/jury/contests/1/problems/3/delete',
                                                           'selector'  => 'Boolean switch search',
                                                           'fixture'   => null];
     protected static string $addForm                   = 'contest[';
@@ -189,7 +191,7 @@ class ContestControllerTest extends JuryControllerTest
 
     public function testUnlockJudgeTasks(): void
     {
-        // First, check that adding a submission creates a queue task and 3 judge tasks
+        // First, check that adding a submission creates a queue task and 4 judge tasks.
         $this->addSubmission('DOMjudge', 'fltcmp');
         /** @var EntityManagerInterface $em */
         $em = static::getContainer()->get(EntityManagerInterface::class);
@@ -203,9 +205,9 @@ class ContestControllerTest extends JuryControllerTest
             ->getQuery();
 
         self::assertEquals(1, $queueTaskQuery->getSingleScalarResult());
-        self::assertEquals(3, $judgeTaskQuery->getSingleScalarResult());
+        self::assertEquals(4, $judgeTaskQuery->getSingleScalarResult());
 
-        // Now, disable the problem
+        // Now, disable the problem.
         $contest = $em->getRepository(Contest::class)->findOneBy(['shortname' => 'demo']);
         $contestId = $contest->getCid();
         $url = "/jury/contests/$contestId/edit";
@@ -216,7 +218,7 @@ class ContestControllerTest extends JuryControllerTest
         $formData = $form->getValues();
         $problemIndex = null;
         foreach ($formData as $key => $value) {
-            if (preg_match('/^contest\[problems\]\[(\d+)\]\[shortname\]$/', $key, $matches) === 1 && $value === 'fltcmp') {
+            if (preg_match('/^contest\[problems\]\[(\d+)\]\[shortname\]$/', $key, $matches) === 1 && $value === 'B') {
                 $problemIndex = $matches[1];
                 $formData["contest[problems][$problemIndex][allowJudge]"] = '0';
             }
@@ -224,20 +226,20 @@ class ContestControllerTest extends JuryControllerTest
 
         $this->client->submit($form, $formData);
 
-        // Submit again
+        // Submit again.
         $this->addSubmission('DOMjudge', 'fltcmp');
 
-        // This should not add more queue or judge tasks
+        // This should not add more queue or judge tasks.
         self::assertEquals(1, $queueTaskQuery->getSingleScalarResult());
-        self::assertEquals(3, $judgeTaskQuery->getSingleScalarResult());
+        self::assertEquals(4, $judgeTaskQuery->getSingleScalarResult());
 
-        // Enable judging again
+        // Enable judging again.
         $formData["contest[problems][$problemIndex][allowJudge]"] = '1';
         $this->client->submit($form, $formData);
 
-        // This should add more queue and judge tasks
+        // This should add more queue and judge tasks.
         self::assertEquals(2, $queueTaskQuery->getSingleScalarResult());
-        self::assertEquals(6, $judgeTaskQuery->getSingleScalarResult());
+        self::assertEquals(8, $judgeTaskQuery->getSingleScalarResult());
     }
 
     public function testCheckAddMultipleTimezonesAdmin(): void
@@ -297,5 +299,79 @@ class ContestControllerTest extends JuryControllerTest
             }
             self::assertSelectorExists('body:contains("Contest should not have multiple timezones.")');
         }
+    }
+
+    public function testLockedContest(): void
+    {
+        $this->roles = ['admin'];
+        $this->logOut();
+        $this->logIn();
+
+        /** @var EntityManagerInterface $em */
+        $em = static::getContainer()->get(EntityManagerInterface::class);
+        $contest = $em->getRepository(Contest::class)->findOneBy(['shortname' => 'demo']);
+        $contest->setIsLocked(false);
+        $contestId = $contest->getCid();
+        $editUrl = "/jury/contests/$contestId/edit";
+        $deleteUrl = "/jury/contests/$contestId/delete";
+        $contestUrl = "/jury/contests/$contestId";
+        $em->flush();
+
+        // Contest is unlocked, so we should be able to edit.
+        $this->verifyPageResponse('GET', $editUrl, 200);
+
+        // We should see all normal buttons including a lock button.
+        $this->verifyPageResponse('GET', $contestUrl, 200);
+        $crawler = $this->getCurrentCrawler();
+        $titles = $crawler->filterXPath('//div[@class="button-row"]')->children()->each(function (Crawler $node, $i) {
+            return $node->attr('title');
+        });
+        $expectedTitles = [
+            'Edit',
+            'Delete',
+            'Lock',
+            'Finalize this contest',
+            'Judge remaining testcases',
+            'Heat up judgehosts with contest data',
+        ];
+        self::assertTrue(array_intersect($titles, $expectedTitles) == $expectedTitles);
+
+        $contest = $em->getRepository(Contest::class)->findOneBy(['shortname' => 'demo']);
+        $contest->setIsLocked(true);
+        $em->flush();
+
+        // Contest is locked, so we should not be able to edit.
+        $this->verifyPageResponse('GET', $editUrl, 302, $contestUrl);
+
+        // We should not see buttons that modify state, but see the normal buttons.
+        $this->verifyPageResponse('GET', $contestUrl, 200);
+        $crawler = $this->getCurrentCrawler();
+        $titles = $crawler->filterXPath('//div[@class="button-row"]')->children()->each(function (Crawler $node, $i) {
+            return $node->attr('title');
+        });
+        $expectedTitles = [
+            'Unlock',
+            'Judge remaining testcases',
+            'Heat up judgehosts with contest data',
+        ];
+        self::assertTrue(array_intersect($titles, $expectedTitles) == $expectedTitles);
+        $unexpectedTitles = [
+            'Finalize this contest',
+            'Edit',
+            'Delete',
+            'Lock',
+        ];
+        self::assertTrue(array_intersect($titles, $unexpectedTitles) == []);
+
+        // Deleting a locked contest does not work.
+        $this->verifyPageResponse('GET', $deleteUrl, 302, $contestUrl);
+
+        // Deleting an unlocked contest works.
+        $contest = $em->getRepository(Contest::class)->findOneBy(['shortname' => 'demo']);
+        $contest->setIsLocked(false);
+        $em->flush();
+        $this->verifyPageResponse('GET', $deleteUrl, 200);
+        $crawler = $this->getCurrentCrawler();
+        self::assertStringStartsWith('Delete contest ', $crawler->filter('h1')->text());
     }
 }

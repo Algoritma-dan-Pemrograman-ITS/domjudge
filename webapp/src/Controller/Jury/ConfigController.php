@@ -75,6 +75,9 @@ class ConfigController extends AbstractController
                         }
                     }
                     $data[substr($key, strlen('config_'))] = $valueToUse;
+                    if ($key === 'config_lazy_eval_results' && $value !== DOMJudgeService::EVAL_DEMAND) {
+                        $this->dj->unblockJudgeTasks();
+                    }
                 }
             }
             $this->config->saveChanges($data, $eventLogService, $this->dj);
@@ -122,8 +125,10 @@ class ConfigController extends AbstractController
     public function checkAction(string $projectDir, string $logsDir): Response
     {
         $results = $this->checkConfigService->runAll();
+        $stopwatch = $this->checkConfigService->getStopwatch();
         return $this->render('jury/config_check.html.twig', [
             'results' => $results,
+            'stopwatch' => $stopwatch,
             'dir' => [
                     'project' => dirname($projectDir),
                     'log' => $logsDir,

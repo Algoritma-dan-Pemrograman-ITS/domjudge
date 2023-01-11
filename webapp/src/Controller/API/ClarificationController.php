@@ -23,9 +23,10 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
  * @Rest\Route("/contests/{cid}/clarifications")
  * @OA\Tag(name="Clarifications")
  * @OA\Parameter(ref="#/components/parameters/cid")
- * @OA\Response(response="404", ref="#/components/responses/NotFound")
- * @OA\Response(response="401", ref="#/components/responses/Unauthorized")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
+ * @OA\Response(response="404", ref="#/components/responses/NotFound")
  */
 class ClarificationController extends AbstractRestController
 {
@@ -81,10 +82,7 @@ class ClarificationController extends AbstractRestController
     /**
      * Add a clarification to this contest
      * @Rest\Post("")
-     * @Rest\Post("/")
      * @Rest\Put("/{id}")
-     * @OA\Post()
-     * @OA\Put()
      * @Security("is_granted('ROLE_TEAM') or is_granted('ROLE_API_WRITER')", message="You need to have the Team Member role to add a clarification")
      * @OA\RequestBody(
      *     required=true,
@@ -292,8 +290,7 @@ class ClarificationController extends AbstractRestController
             ->setParameter('cid', $this->getContestId($request));
 
         if (!$this->dj->checkrole('api_reader') &&
-            !$this->dj->checkrole('judgehost'))
-        {
+            !$this->dj->checkrole('judgehost')) {
             if ($this->dj->checkrole('team')) {
                 $queryBuilder
                     ->andWhere('clar.sender = :team OR clar.recipient = :team OR (clar.sender IS NULL AND clar.recipient IS NULL)')
@@ -307,7 +304,7 @@ class ClarificationController extends AbstractRestController
 
         if ($request->query->has('problem')) {
             $queryBuilder
-                ->andWhere('clar.probid = :problem')
+                ->andWhere('clar.problem = :problem')
                 ->setParameter('problem', $request->query->get('problem'));
         }
 

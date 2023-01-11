@@ -34,6 +34,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\NonUniqueResultException;
 use Doctrine\ORM\NoResultException;
 use Doctrine\ORM\Query\Expr\Join;
+use Doctrine\ORM\QueryBuilder;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\HttpFoundation\Cookie;
@@ -70,6 +71,10 @@ class DOMJudgeService
     const DATA_SOURCE_LOCAL = 0;
     const DATA_SOURCE_CONFIGURATION_EXTERNAL = 1;
     const DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL = 2;
+    const EVAL_DEFAULT = null;
+    const EVAL_LAZY = 1;
+    const EVAL_FULL = 2;
+    const EVAL_DEMAND = 3;
 
     // Regex external identifiers must adhere to. Note that we are not checking whether it
     // does not start with a dot or dash or ends with a dot. We could but it would make the
@@ -143,9 +148,13 @@ class DOMJudgeService
         return $qb->getQuery()->getResult();
     }
 
-    public function getCurrrentContestCookie(): ?int
+    public function getCurrentContestCookie(): ?int
     {
-        return $this->requestStack->getCurrentRequest()->cookies->getInt('domjudge_cid');
+        $request = $this->requestStack->getCurrentRequest();
+        if ($request === null || $request->cookies === null) {
+            return null;
+        }
+        return $request->cookies->getInt('domjudge_cid');
     }
 
     /**
@@ -157,7 +166,7 @@ class DOMJudgeService
     {
         $contests = $this->getCurrentContests($onlyofteam, $alsofuture);
         if ($this->requestStack->getCurrentRequest()) {
-            $selected_cid = $this->getCurrrentContestCookie();
+            $selected_cid = $this->getCurrentContestCookie();
             if ($selected_cid == -1) {
                 return null;
             }
@@ -730,7 +739,6 @@ class DOMJudgeService
             ->getQuery()
             ->getResult();
 
-
         $zip = new ZipArchive();
         if (!($tempFilename = tempnam($this->getDomjudgeTmpDir(), "export-"))) {
             throw new ServiceUnavailableHttpException(null, 'Could not create temporary file.');
@@ -901,10 +909,11 @@ class DOMJudgeService
 
         if ($contest && $this->config->get('show_public_stats')) {
             $freezeData = new FreezeData($contest);
+            $showVerdictsInFreeze = $freezeData->showFinal(false) || $contest->getFreezetime() === null;
             $data['stats'] = $statistics->getGroupedProblemsStats(
                 $contest,
                 array_map(fn(ContestProblem $problem) => $problem->getProblem(), $problems),
-                $freezeData->showFinal(false),
+                $showVerdictsInFreeze,
                 (bool)$this->config->get('verification_required')
             );
         }
@@ -915,12 +924,13 @@ class DOMJudgeService
     public function createImmutableExecutable(ZipArchive $zip): ImmutableExecutable
     {
         $propertyFile = 'domjudge-executable.ini';
-        $immutableExecutable = new ImmutableExecutable();
-        $this->em->persist($immutableExecutable);
         $rank = 0;
+        $files = [];
         for ($idx = 0; $idx < $zip->numFiles; $idx++) {
             $filename = basename($zip->getNameIndex($idx));
             if ($filename === $propertyFile) {
+                // This file is only for setting metadata of the executable,
+                // see webapp/src/Controller/Jury/ExecutableController.php.
                 continue;
             }
 
@@ -931,32 +941,41 @@ class DOMJudgeService
                 && (($attr >> 16) & 0100) === 0) {
                 $executableBit = false;
             }
+            // As a special case force these files to be executable.
+            if ($filename==='build' || $filename==='run') {
+                $executableBit = true;
+            }
             $executableFile = new ExecutableFile();
             $executableFile
                 ->setRank($rank)
                 ->setFilename($filename)
                 ->setFileContent($zip->getFromIndex($idx))
-                ->setImmutableExecutable($immutableExecutable)
                 ->setIsExecutable($executableBit);
             $this->em->persist($executableFile);
-            $immutableExecutable->addFile($executableFile);
+            $files[] = $executableFile;
             $rank++;
         }
-        $immutableExecutable->updateHash();
+        $immutableExecutable = new ImmutableExecutable($files);
+        $this->em->persist($immutableExecutable);
         $this->em->flush();
         return $immutableExecutable;
+    }
+
+    public function helperUnblockJudgeTasks(): QueryBuilder
+    {
+        return $this->em->createQueryBuilder()
+            ->select('j')
+            ->from(Judging::class, 'j')
+            ->leftJoin(JudgeTask::class, 'jt', Join::WITH, 'j.judgingid = jt.jobid')
+            ->where('jt.jobid IS NULL');
     }
 
     public function unblockJudgeTasksForLanguage(string $langId): void
     {
         // These are all the judgings that don't have associated judgetasks yet. Check whether we unblocked them.
-        $judgings = $this->em->createQueryBuilder()
-            ->select('j')
-            ->from(Judging::class, 'j')
-            ->leftJoin(JudgeTask::class, 'jt', Join::WITH, 'j.judgingid = jt.jobid')
+        $judgings = $this->helperUnblockJudgeTasks()
             ->join(Submission::class, 's', Join::WITH, 'j.submission = s.submitid')
             ->join(Language::class, 'l', Join::WITH, 's.language = l.langid')
-            ->where('jt.jobid IS NULL')
             ->andWhere('l.langid = :langid')
             ->setParameter('langid', $langId)
             ->getQuery()
@@ -969,13 +988,9 @@ class DOMJudgeService
     public function unblockJudgeTasksForProblem(int $probId): void
     {
         // These are all the judgings that don't have associated judgetasks yet. Check whether we unblocked them.
-        $judgings = $this->em->createQueryBuilder()
-            ->select('j')
-            ->from(Judging::class, 'j')
-            ->leftJoin(JudgeTask::class, 'jt', Join::WITH, 'j.judgingid = jt.jobid')
+        $judgings = $this->helperUnblockJudgeTasks()
             ->join(Submission::class, 's', Join::WITH, 'j.submission = s.submitid')
             ->join(Problem::class, 'p', Join::WITH, 's.problem = p.probid')
-            ->where('jt.jobid IS NULL')
             ->andWhere('p.probid = :probid')
             ->setParameter('probid', $probId)
             ->getQuery()
@@ -985,32 +1000,62 @@ class DOMJudgeService
         }
     }
 
-    public function maybeCreateJudgeTasks(Judging $judging, int $priority = JudgeTask::PRIORITY_DEFAULT): void
+    public function unblockJudgeTasksForSubmission(string $submissionId): void
+    {
+        // These are all the judgings that don't have associated judgetasks yet. Check whether we unblocked them.
+        $judgings = $this->helperUnblockJudgeTasks()
+            ->join(Submission::class, 's', Join::WITH, 'j.submission = s.submitid')
+            ->andWhere('j.submission = :submissionid')
+            ->setParameter('submissionid', $submissionId)
+            ->getQuery()
+            ->getResult();
+        foreach ($judgings as $judging) {
+            $this->maybeCreateJudgeTasks($judging, JudgeTask::PRIORITY_DEFAULT, true);
+        }
+    }
+
+    public function unblockJudgeTasks(): void
+    {
+        // These are all the judgings that don't have associated judgetasks yet. Check whether we unblocked them.
+        $judgings = $this->helperUnblockJudgeTasks()
+            ->getQuery()
+            ->getResult();
+        foreach ($judgings as $judging) {
+            $this->maybeCreateJudgeTasks($judging);
+        }
+    }
+
+    public function maybeCreateJudgeTasks(Judging $judging, int $priority = JudgeTask::PRIORITY_DEFAULT, bool $manualRequest = false): void
     {
         $submission = $judging->getSubmission();
         $problem    = $submission->getContestProblem();
         $language   = $submission->getLanguage();
 
-        if (!$problem->getAllowJudge() || !$language->getAllowJudge()) {
+        $evalOnDemand = false;
+        // We have 2 cases, the problem picks the global value or the value is set.
+        if ( ((int)$problem->getLazyEvalResults() === (int)DOMJudgeService::EVAL_DEFAULT && $this->config->get('lazy_eval_results') === static::EVAL_DEMAND)
+             || $problem->getLazyEvalResults() === DOMJudgeService::EVAL_DEMAND) {
+            $evalOnDemand = true;
+        }
+        // Special case, we're shadow and someone submits on our side in that case
+        // we're not super lazy.
+        if ($this->config->get('data_source') === DOMJudgeService::DATA_SOURCE_CONFIGURATION_AND_LIVE_EXTERNAL
+            && $submission->getExternalid() === null) {
+                $evalOnDemand = false;
+        }
+        if ($manualRequest) {
+            // When explicitly requested, judge the submission.
+            $evalOnDemand = false;
+        }
+        if (!$problem->getAllowJudge() || !$language->getAllowJudge() || $evalOnDemand) {
             return;
-        }
-
-        $memoryLimit = $problem->getProblem()->getMemlimit();
-        $outputLimit = $problem->getProblem()->getOutputlimit();
-        if (empty($memoryLimit)) {
-            $memoryLimit = $this->config->get('memory_limit');
-        }
-        if (empty($outputLimit)) {
-            $outputLimit = $this->config->get('output_limit');
         }
 
         // We use a mass insert query, since that is way faster than doing a separate insert for each testcase.
         // We first insert judgetasks, then select their ID's and finally insert the judging runs.
-        $compileExecutable = $submission->getLanguage()->getCompileExecutable()->getImmutableExecutable();
-        $runExecutable = $this->getImmutableRunExecutable($problem);
-        $compareExecutable = $this->getImmutableCompareExecutable($problem);
 
         // Step 1: Create the template for the judgetasks.
+        $compileExecutable = $submission->getLanguage()->getCompileExecutable()->getImmutableExecutable();
         $judgetaskInsertParams = [
             ':type'              => JudgeTaskType::JUDGING_RUN,
             ':submitid'          => $submission->getSubmitid(),
@@ -1018,40 +1063,11 @@ class DOMJudgeService
             ':jobid'             => $judging->getJudgingid(),
             ':uuid'              => $judging->getUuid(),
             ':compile_script_id' => $compileExecutable->getImmutableExecId(),
-            ':compare_script_id' => $compareExecutable->getImmutableExecId(),
-            ':run_script_id'     => $runExecutable->getImmutableExecId(),
-            // TODO: store this in the database as well instead of recomputing it here over and over again, doing
-            // this will also help to make the whole data immutable.
-            ':compile_config'    => $this->jsonEncode(
-                [
-                    'script_timelimit'      => $this->config->get('script_timelimit'),
-                    'script_memory_limit'   => $this->config->get('script_memory_limit'),
-                    'script_filesize_limit' => $this->config->get('script_filesize_limit'),
-                    'language_extensions'   => $submission->getLanguage()->getExtensions(),
-                    'filter_compiler_files' => $submission->getLanguage()->getFilterCompilerFiles(),
-                    'hash'                  => $compileExecutable->getHash(),
-                ]
-            ),
-            ':run_config'        => $this->jsonEncode(
-                [
-                    'time_limit'    => $problem->getProblem()->getTimelimit() * $submission->getLanguage()->getTimeFactor(),
-                    'memory_limit'  => $memoryLimit,
-                    'output_limit'  => $outputLimit,
-                    'process_limit' => $this->config->get('process_limit'),
-                    'entry_point'   => $submission->getEntryPoint(),
-                    'hash'          => $runExecutable->getHash(),
-                ]
-            ),
-            ':compare_config'    => $this->jsonEncode(
-                [
-                    'script_timelimit'      => $this->config->get('script_timelimit'),
-                    'script_memory_limit'   => $this->config->get('script_memory_limit'),
-                    'script_filesize_limit' => $this->config->get('script_filesize_limit'),
-                    'compare_args'          => $problem->getProblem()->getSpecialCompareArgs(),
-                    'combined_run_compare'  => $problem->getProblem()->getCombinedRunCompare(),
-                    'hash'                  => $compareExecutable->getHash(),
-                ]
-            ),
+            ':compare_script_id' => $this->getImmutableCompareExecutable($problem)->getImmutableExecId(),
+            ':run_script_id'     => $this->getImmutableRunExecutable($problem)->getImmutableExecId(),
+            ':compile_config'    => $this->getCompileConfig($submission),
+            ':run_config'        => $this->getRunConfig($problem, $submission),
+            ':compare_config'    => $this->getCompareConfig($problem),
         ];
 
         $judgetaskDefaultParamNames = array_keys($judgetaskInsertParams);
@@ -1300,7 +1316,6 @@ class DOMJudgeService
                 case 'logo':
                     return $this->assetPath($useExternalid ? $entity->getExternalid() : (string)$entity->getAffilid(), 'affiliation', true, $forceExtension);
             }
-
         } elseif ($entity instanceof Contest) {
             switch ($property) {
                 case 'banner':
@@ -1344,7 +1359,7 @@ class DOMJudgeService
         // TODO: Reduce duplication with judgedaemon code.
         $contents = explode("\n", $raw_metadata);
         $res = [];
-        foreach($contents as $line) {
+        foreach ($contents as $line) {
             if (strpos($line, ":") !== false) {
                 [$key, $value] = explode(":", $line, 2);
                 $res[$key] = trim($value);
@@ -1352,5 +1367,59 @@ class DOMJudgeService
         }
 
         return $res;
+    }
+
+    public function getRunConfig(ContestProblem $problem, Submission $submission): string
+    {
+        $memoryLimit = $problem->getProblem()->getMemlimit();
+        $outputLimit = $problem->getProblem()->getOutputlimit();
+        if (empty($memoryLimit)) {
+            $memoryLimit = $this->config->get('memory_limit');
+        }
+        if (empty($outputLimit)) {
+            $outputLimit = $this->config->get('output_limit');
+        }
+        $runExecutable = $this->getImmutableRunExecutable($problem);
+
+        return $this->jsonEncode(
+            [
+                'time_limit' => $problem->getProblem()->getTimelimit() * $submission->getLanguage()->getTimeFactor(),
+                'memory_limit' => $memoryLimit,
+                'output_limit' => $outputLimit,
+                'process_limit' => $this->config->get('process_limit'),
+                'entry_point' => $submission->getEntryPoint(),
+                'hash' => $runExecutable->getHash(),
+            ]
+        );
+    }
+
+    public function getCompareConfig(ContestProblem $problem): string
+    {
+        $compareExecutable = $this->getImmutableCompareExecutable($problem);
+        return $this->jsonEncode(
+            [
+                'script_timelimit' => $this->config->get('script_timelimit'),
+                'script_memory_limit' => $this->config->get('script_memory_limit'),
+                'script_filesize_limit' => $this->config->get('script_filesize_limit'),
+                'compare_args' => $problem->getProblem()->getSpecialCompareArgs(),
+                'combined_run_compare' => $problem->getProblem()->getCombinedRunCompare(),
+                'hash' => $compareExecutable->getHash(),
+            ]
+        );
+    }
+
+    public function getCompileConfig(Submission $submission): string
+    {
+        $compileExecutable = $submission->getLanguage()->getCompileExecutable()->getImmutableExecutable();
+        return $this->jsonEncode(
+            [
+                'script_timelimit' => $this->config->get('script_timelimit'),
+                'script_memory_limit' => $this->config->get('script_memory_limit'),
+                'script_filesize_limit' => $this->config->get('script_filesize_limit'),
+                'language_extensions' => $submission->getLanguage()->getExtensions(),
+                'filter_compiler_files' => $submission->getLanguage()->getFilterCompilerFiles(),
+                'hash' => $compileExecutable->getHash(),
+            ]
+        );
     }
 }

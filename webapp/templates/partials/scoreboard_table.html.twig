@@ -19,10 +19,6 @@
 {% set scores = scoreboard.scores | filter(score => limitToTeams is null or score.team.teamid in limitToTeamIds) %}
 {% set problems = scoreboard.problems %}
 {% set medalsEnabled = contest.medalsEnabled %}
-{% if scoreFilter and scoreFilter.filteredOn is not empty %}
-    {% set medalsEnabled = false %}
-{% endif %}
-{% set medalCategories = contest.medalCategories %}
 
 {% if maxWidth > 0 %}
     <style>
@@ -104,6 +100,7 @@
     {% set previousSortOrder = -1 %}
     {% set previousTeam = null %}
     {% set backgroundColors = {"#FFFFFF": 1} %}
+    {% set medalCount = 0 %}
     {% for score in scores %}
         {% set classes = [] %}
         {% if score.team.category.sortorder != previousSortOrder %}
@@ -118,14 +115,8 @@
 
         {# process medal color #}
         {% set medalColor = '' %}
-        {% if showLegends and medalsEnabled and score.team.category in medalCategories and score.numPoints > 0 %}
-            {% if score.rank <= contest.goldMedals %}
-                {% set medalColor = 'gold-medal' %}
-            {% elseif score.rank <= contest.goldMedals + contest.silverMedals %}
-                {% set medalColor = 'silver-medal' %}
-            {% elseif score.rank <= contest.goldMedals + contest.silverMedals + contest.bronzeMedals + contest.b %}
-                {% set medalColor = 'bronze-medal' %}
-            {% endif %}
+        {% if showLegends %}
+            {% set medalColor = score.team | medalType(contest, scoreboard) %}
         {% endif %}
 
         {# check whether this is us, otherwise use category colour #}

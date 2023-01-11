@@ -1,0 +1,87 @@
+name: "Mayhem API analysis"
+
+on:
+  schedule:
+    - cron: '5 21 1-31/2 * *'
+
+jobs:
+  mayhem:
+    name: Mayhem API analysis
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        version: ["team", "guest", "admin", "jury"]
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    env:
+      DB_DATABASE: domjudge
+      DB_USER: user
+      DB_PASSWORD: password
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install DOMjudge
+        run: .github/workflowscripts/baseinstall.sh ${{ matrix.version }}
+
+      - name: Dump the OpenAPI
+        run: .github/workflowscripts/getapi.sh
+
+      - uses: actions/upload-artifact@v3
+        if: ${{ matrix.version == 'guest' }}
+        with:
+          name: all-apispec
+          path: |
+            /home/runner/work/domjudge/domjudge/openapi.json
+
+      - name: Mayhem for API
+        uses: ForAllSecure/mapi-action@v1
+        if: ${{ matrix.version == 'guest' }}
+        continue-on-error: true
+        with:
+          mapi-token: ${{ secrets.MAPI_TOKEN }}
+          api-url: http://localhost/domjudge
+          api-spec: http://localhost/domjudge/api/doc.json # swagger/openAPI doc hosted here
+          duration: 2m
+          sarif-report: mapi.sarif
+          run-args: |
+              --config
+              .github/workflowscripts/mapi.config
+              --ignore-endpoint
+              ".*strict=true.*"
+              --ignore-endpoint
+              ".*strict=True.*"
+
+      - name: Mayhem for API (For application role)
+        uses: ForAllSecure/mapi-action@v1
+        if: ${{ matrix.version != 'guest' }}
+        continue-on-error: true
+        with:
+          mapi-token: ${{ secrets.MAPI_TOKEN }}
+          target: domjudge-${{ matrix.version }}
+          api-url: http://localhost/domjudge
+          api-spec: http://localhost/domjudge/api/doc.json # swagger/openAPI doc hosted here
+          duration: 5m
+          sarif-report: mapi.sarif
+          run-args: |
+              --config
+              .github/workflowscripts/mapi.config
+              --basic-auth
+              admin:password
+              --ignore-endpoint
+              ".*strict=true.*"
+              --ignore-endpoint
+              ".*strict=True.*"
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: mapi.sarif
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.version }}-logs
+          path: |
+            /var/log/nginx
+            /opt/domjudge/domserver/webapp/var/log/*.log

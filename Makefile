@@ -5,7 +5,7 @@
 export TOPDIR = $(shell pwd)
 
 REC_TARGETS=build domserver install-domserver judgehost install-judgehost \
-            docs install-docs
+            docs install-docs inplace-install inplace-uninstall
 
 # Global Makefile definitions
 include $(TOPDIR)/Makefile.global
@@ -57,10 +57,10 @@ ifeq (, $(shell command -v composer 2> /dev/null))
 endif
 # We use --no-scripts here because at this point the autoload.php file is
 # not generated yet, which is needed to run the post-install scripts.
-	composer $(subst 1,-q,$(QUIET)) install --prefer-dist -o -a --no-scripts
+	composer $(subst 1,-q,$(QUIET)) install --prefer-dist -o -a --no-scripts --no-plugins
 
 composer-dependencies-dev:
-	composer $(subst 1,-q,$(QUIET)) install --prefer-dist --no-scripts
+	composer $(subst 1,-q,$(QUIET)) install --prefer-dist --no-scripts --no-plugins
 
 # Generate documentation for distribution. Remove this dependency from
 # dist above for quicker building from git sources.
@@ -77,17 +77,19 @@ build-scripts:
 	$(MAKE) -C sql build-scripts
 
 # List of SUBDIRS for recursive targets:
-build:             SUBDIRS=        lib                      tests misc-tools
-domserver:         SUBDIRS=etc         sql                        misc-tools webapp
-install-domserver: SUBDIRS=etc     lib sql                        misc-tools webapp
-judgehost:         SUBDIRS=etc                 judge              misc-tools
-install-judgehost: SUBDIRS=etc     lib         judge              misc-tools
+build:             SUBDIRS=        lib           misc-tools
+domserver:         SUBDIRS=etc         sql       misc-tools webapp
+install-domserver: SUBDIRS=etc     lib sql       misc-tools webapp example_problems
+judgehost:         SUBDIRS=etc             judge misc-tools
+install-judgehost: SUBDIRS=etc     lib     judge misc-tools
 docs:              SUBDIRS=    doc
 install-docs:      SUBDIRS=    doc
-dist:              SUBDIRS=        lib sql                        misc-tools
-clean:             SUBDIRS=etc doc lib sql     judge submit tests misc-tools webapp
-distclean:         SUBDIRS=etc doc lib sql     judge submit tests misc-tools webapp
-maintainer-clean:  SUBDIRS=etc doc lib sql     judge submit tests misc-tools webapp
+inplace-install:   SUBDIRS=    doc               misc-tools
+inplace-uninstall: SUBDIRS=    doc               misc-tools
+dist:              SUBDIRS=        lib sql       misc-tools
+clean:             SUBDIRS=etc doc lib sql judge misc-tools webapp
+distclean:         SUBDIRS=etc doc lib sql judge misc-tools webapp
+maintainer-clean:  SUBDIRS=etc doc lib sql judge misc-tools webapp
 
 domserver-create-dirs:
 	$(INSTALL_DIR) $(addprefix $(DESTDIR),$(domserver_dirs))
@@ -202,6 +204,7 @@ webapp/.env.local:
 # This stuff is a hack!
 maintainer-install: inplace-install
 inplace-install: build domserver-create-dirs judgehost-create-dirs
+inplace-install-l:
 # Replace libjudgedir with symlink to prevent lots of symlinks:
 	-rmdir $(judgehost_libjudgedir)
 	-rm -f $(judgehost_libjudgedir)
@@ -213,8 +216,6 @@ inplace-install: build domserver-create-dirs judgehost-create-dirs
 	ln -sf $(CURDIR)/judge/runpipe  $(judgehost_bindir)
 	ln -sf $(CURDIR)/judge/create_cgroups  $(judgehost_bindir)
 	ln -sf $(CURDIR)/sql/dj_setup_database $(domserver_bindir)
-	$(MAKE) -C misc-tools inplace-install
-	$(MAKE) -C doc/manual inplace-install
 # Create tmpdir and make tmpdir writable for webserver,
 # because judgehost-create-dirs sets wrong permissions:
 	$(MKDIR_P) $(domserver_tmpdir)
@@ -283,7 +284,7 @@ inplace-postinstall-nginx: inplace-postinstall-permissions
 	systemctl restart php$(PHPVERSION)-fpm
 
 # Removes created symlinks; generated logs, submissions, etc. remain in output subdir.
-inplace-uninstall:
+inplace-uninstall-l:
 	rm -f $(judgehost_libjudgedir)
 	rm -rf $(judgehost_bindir)
 
@@ -292,8 +293,6 @@ coverity-conf:
 	$(MAKE) inplace-conf
 
 coverity-build: paths.mk
-# First delete some files to keep Coverity scan happy:
-	-rm -f tests/test-compile-error.*
 	$(MAKE) build build-scripts
 # Secondly, delete all upstream PHP libraries to not analyze those:
 	-rm -rf lib/vendor/*
@@ -312,6 +311,7 @@ clean-l:
 distclean-l: clean-autoconf
 	-rm -f paths.mk
 
+maintainer-clean: inplace-uninstall
 maintainer-clean-l:
 	-rm -f configure aclocal.m4
 

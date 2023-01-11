@@ -17,8 +17,9 @@ use Symfony\Component\HttpFoundation\Request;
  * @OA\Tag(name="Balloons")
  * @OA\Parameter(ref="#/components/parameters/cid")
  * @OA\Response(response="404", ref="#/components/responses/NotFound")
- * @OA\Response(response="401", ref="#/components/responses/Unauthorized")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
  * @Security("is_granted('ROLE_JURY') or is_granted('ROLE_API_READER') or is_granted('ROLE_BALLOON')")
  */
 class BalloonController extends AbstractRestController
@@ -29,6 +30,10 @@ class BalloonController extends AbstractRestController
      * @OA\Response(
      *     response="200",
      *     description="Returns the balloons for this contest.",
+     *     @OA\JsonContent(
+     *         type="array",
+     *         @OA\Items(ref="#/components/schemas/Balloon")
+     *     )
      * )
      * @OA\Parameter(
      *     name="todo",

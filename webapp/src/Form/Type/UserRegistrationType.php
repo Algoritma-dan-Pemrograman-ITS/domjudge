@@ -178,6 +178,7 @@ class UserRegistrationType extends AbstractType
                     'attr' => [
                         'placeholder' => 'Password',
                         'autocomplete' => 'new-password',
+                        'spellcheck' => 'false',
                     ],
                 ],
                 'second_options' => [
@@ -185,6 +186,7 @@ class UserRegistrationType extends AbstractType
                     'attr' => [
                         'placeholder' => 'Repeat Password',
                         'autocomplete' => 'new-password',
+                        'spellcheck' => 'false',
                     ],
                 ],
                 'mapped' => false,
@@ -220,7 +222,7 @@ class UserRegistrationType extends AbstractType
                 $form = $context->getRoot();
                 switch ($form->get('affiliation')->getData()) {
                     case 'new':
-                        foreach(['Name','ShortName'] as $identifier) {
+                        foreach (['Name','ShortName'] as $identifier) {
                             $name = $form->get('affiliation'.$identifier)->getData();
                             if (empty($name)) {
                                 $context->buildViolation('This value should not be blank.')
@@ -231,7 +233,6 @@ class UserRegistrationType extends AbstractType
                                 $context->buildViolation('This affiliation '.strtolower($identifier).' is already in use.')
                                     ->atPath('affiliation'.$identifier)
                                     ->addViolation();
-
                             }
                         }
                         break;

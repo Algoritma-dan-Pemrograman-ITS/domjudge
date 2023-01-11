@@ -15,6 +15,7 @@ use Doctrine\ORM\NoResultException;
 use Exception;
 use FOS\RestBundle\Controller\AbstractFOSRestController;
 use FOS\RestBundle\Controller\Annotations as Rest;
+use InvalidArgumentException;
 use Nelmio\ApiDocBundle\Annotation\Model;
 use OpenApi\Annotations as OA;
 use Psr\Log\LoggerInterface;
@@ -31,10 +32,15 @@ use Symfony\Component\Routing\RouterInterface;
 /**
  * @OA\Tag(name="General")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
  */
 class GeneralInfoController extends AbstractFOSRestController
 {
     protected const API_VERSION = 4;
+
+    public const CCS_SPEC_API_VERSION = '2022-07';
+    public const CCS_SPEC_API_URL = 'https://ccs-specs.icpc.io/2022-07/contest_api';
 
     protected EntityManagerInterface $em;
     protected DOMJudgeService $dj;
@@ -91,20 +97,34 @@ class GeneralInfoController extends AbstractFOSRestController
      *     description="Information about the API and DOMjudge",
      *     @OA\JsonContent(
      *         type="object",
-     *         @OA\Property(property="api_version", type="integer"),
-     *         @OA\Property(property="domjudge_version", type="string"),
-     *         @OA\Property(property="environment", type="string"),
-     *         @OA\Property(property="doc_url", type="string")
+     *         @OA\Property(property="version", type="string", description="Version of the CCS Specs Contest API the API adheres to"),
+     *         @OA\Property(property="version_url", type="string", description="URL with the specification of the Contest API"),
+     *         @OA\Property(
+     *             property="domjudge",
+     *             type="object",
+     *             description="DOMjudge information",
+     *             properties={
+     *                 @OA\Property(property="api_version", type="integer", description="Version of the API"),
+     *                 @OA\Property(property="domjudge_version", type="string", description="Version of DOMjudge"),
+     *                 @OA\Property(property="environment", type="string", description="Environment DOMjudge is running in"),
+     *                 @OA\Property(property="doc_url", type="string", description="URL to DOMjudge API docs")
+     *             }
+     *         )
      *     )
      * )
      */
     public function getInfoAction(): array
     {
         return [
-            'api_version' => static::API_VERSION,
-            'domjudge_version' => $this->getParameter('domjudge.version'),
-            'environment' => $this->getParameter('kernel.environment'),
-            'doc_url' => $this->router->generate('app.swagger_ui', [], RouterInterface::ABSOLUTE_URL),
+            'version' => self::CCS_SPEC_API_VERSION,
+            'version_url' => self::CCS_SPEC_API_URL,
+            'name' => 'DOMjudge',
+            'domjudge' => [
+                'api_version' => static::API_VERSION,
+                'version' => $this->getParameter('domjudge.version'),
+                'environment' => $this->getParameter('kernel.environment'),
+                'doc_url' => $this->router->generate('app.swagger_ui', [], RouterInterface::ABSOLUTE_URL),
+            ],
         ];
     }
 
@@ -131,14 +151,7 @@ class GeneralInfoController extends AbstractFOSRestController
      */
     public function getStatusAction(): array
     {
-        if ($this->dj->checkrole('jury')) {
-            $onlyOfTeam = null;
-        } elseif ($this->dj->checkrole('team') && $this->dj->getUser()->getTeam()) {
-            $onlyOfTeam = $this->dj->getUser()->getTeam();
-        } else {
-            $onlyOfTeam = -1;
-        }
-        $contests = $this->dj->getCurrentContests($onlyOfTeam);
+        $contests = $this->dj->getCurrentContests(null);
         if (empty($contests)) {
             throw new BadRequestHttpException('No active contest');
         }
@@ -158,6 +171,7 @@ class GeneralInfoController extends AbstractFOSRestController
     /**
      * Get information about the currently logged in user.
      * @Rest\Get("/user")
+     * @IsGranted("IS_AUTHENTICATED_FULLY")
      * @OA\Response(
      *     response="200",
      *     description="Information about the logged in user",
@@ -166,12 +180,7 @@ class GeneralInfoController extends AbstractFOSRestController
      */
     public function getUserAction(): User
     {
-        $user = $this->dj->getUser();
-        if ($user === null) {
-            throw new HttpException(401, 'Permission denied');
-        }
-
-        return $user;
+        return $this->dj->getUser();
     }
 
     /**
@@ -196,7 +205,11 @@ class GeneralInfoController extends AbstractFOSRestController
         $name       = $request->query->get('name');
 
         if ($name) {
-            $result = $this->config->get($name, $onlypublic);
+            try {
+                $result = $this->config->get($name, $onlypublic);
+            } catch (InvalidArgumentException $e) {
+                throw new BadRequestHttpException(sprintf('Parameter with name: %s not found', $name));
+            }
         } else {
             $result = $this->config->all($onlypublic);
         }
@@ -237,7 +250,17 @@ class GeneralInfoController extends AbstractFOSRestController
      * @IsGranted("ROLE_ADMIN")
      * @OA\Response(
      *     response="200",
-     *     description="Result of the various checks performed",
+     *     description="Result of the various checks performed, no problems found",
+     *     @OA\JsonContent(type="object")
+     * )
+     * @OA\Response(
+     *     response="250",
+     *     description="Result of the various checks performed, warnings found",
+     *     @OA\JsonContent(type="object")
+     * )
+     * @OA\Response(
+     *     response="260",
+     *     description="Result of the various checks performed, errors found.",
      *     @OA\JsonContent(type="object")
      * )
      */
@@ -246,17 +269,17 @@ class GeneralInfoController extends AbstractFOSRestController
         $result = $this->checkConfigService->runAll();
 
         // Determine HTTP response code.
-        // If at least one test error: 500
-        // If at least one test warning: 300
+        // If at least one test error: 260
+        // If at least one test warning: 250
         // Otherwise 200
-        // We use max() here to make sure that if it is 300/500 it will never be 'lowered'
+        // We use max() here to make sure that if it is 250/260 it will never be 'lowered'
         $aggregate = 200;
         foreach ($result as &$cat) {
             foreach ($cat as &$test) {
                 if ($test['result'] == 'E') {
-                    $aggregate = max($aggregate, 500);
+                    $aggregate = max($aggregate, 260);
                 } elseif ($test['result'] == 'W') {
-                    $aggregate = max($aggregate, 300);
+                    $aggregate = max($aggregate, 250);
                 }
                 unset($test['escape']);
             }
@@ -311,7 +334,6 @@ class GeneralInfoController extends AbstractFOSRestController
      * Add a problem without linking it to a contest.
      * @Rest\Post("/problems")
      * @IsGranted("ROLE_ADMIN")
-     * @OA\Post()
      * @OA\Tag(name="Problems")
      * @OA\RequestBody(
      *     required=true,

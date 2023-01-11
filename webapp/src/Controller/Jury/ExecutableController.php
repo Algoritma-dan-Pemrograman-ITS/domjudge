@@ -135,7 +135,7 @@ class ExecutableController extends BaseController
         $form = $this->createForm(ExecutableUploadType::class, $data);
         $form->handleRequest($request);
 
-        if ($form->isSubmitted() && $form->isValid()){
+        if ($form->isSubmitted() && $form->isValid()) {
             $propertyFile = 'domjudge-executable.ini';
             $data         = $form->getData();
             /** @var UploadedFile[] $archives */
@@ -228,10 +228,10 @@ class ExecutableController extends BaseController
     }
 
     /**
-     * @Route("/{execId}/delete/{rank}", name="jury_executable_delete_single")
+     * @Route("/{execId}/delete/{rankToDelete}", name="jury_executable_delete_single")
      * @IsGranted("ROLE_ADMIN")
      */
-    public function deleteSingleAction(Request $request, string $execId, int $rank): Response
+    public function deleteSingleAction(Request $request, string $execId, int $rankToDelete): Response
     {
         /** @var Executable $executable */
         $executable = $this->em->getRepository(Executable::class)->find($execId);
@@ -241,21 +241,21 @@ class ExecutableController extends BaseController
 
         /** @var ExecutableFile[] $files */
         $files = array_values($executable->getImmutableExecutable()->getFiles()->toArray());
-        $file = null;
-        foreach ($files as $file) {
-            if ($file->getRank() == $rank) {
+        $fileToDelete = null;
+        foreach ($files as $fileToDelete) {
+            if ($fileToDelete->getRank() == $rankToDelete) {
                 break;
             }
         }
-        if (!$file) {
-            throw new NotFoundHttpException(sprintf('File with rank %d not found in executable with ID %s.', $rank, $execId));
+        if (!$fileToDelete) {
+            throw new NotFoundHttpException(sprintf('File with rank %d not found in executable with ID %s.', $rankToDelete, $execId));
         }
 
         if ($request->isMethod('GET')) {
             $data = [
                 'type' => 'ExecutableFile',
                 'primaryKey' => $execId,
-                'description' => $file->getFilename(),
+                'description' => $fileToDelete->getFilename(),
                 'messages' => [],
                 'isError' => false,
                 'showModalSubmit' => true,
@@ -268,7 +268,26 @@ class ExecutableController extends BaseController
 
             return $this->render('jury/delete.html.twig', $data);
         } else {
-            $this->em->remove($file);
+            // Create a copy of all files except $file
+            $files = [];
+            /** @var ExecutableFile $file */
+            foreach ($executable->getImmutableExecutable()->getFiles() as $file) {
+                if ($file->getRank() == $rankToDelete) {
+                    continue;
+                }
+
+                $executableFile = new ExecutableFile();
+                $executableFile
+                    ->setRank($file->getRank())
+                    ->setIsExecutable($file->isExecutable())
+                    ->setFilename($file->getFilename())
+                    ->setFileContent($file->getFileContent());
+                $this->em->persist($executableFile);
+                $files[] = $executableFile;
+            }
+            $immutableExecutable = new ImmutableExecutable($files);
+            $this->em->persist($immutableExecutable);
+            $executable->setImmutableExecutable($immutableExecutable);
             $this->em->flush();
             $redirectUrl = $this->generateUrl('jury_executable_edit_files', ['execId' => $execId]);
             if ($request->isXmlHttpRequest()) {
@@ -406,29 +425,33 @@ class ExecutableController extends BaseController
         // Handle the form if it is submitted.
         $form->handleRequest($request);
         if ($form->isSubmitted() && $form->isValid()) {
+            if (!$this->isGranted('ROLE_ADMIN')) {
+                $this->addFlash('danger', 'You must have the admin role to submit changes.');
+                return $this->redirectToRoute('jury_executable', ['execId' => $executable->getExecid()]);
+            }
             $submittedData = $form->getData();
 
-            $immutableExecutable = new ImmutableExecutable();
-            $this->em->persist($immutableExecutable);
-
+            $files = [];
             foreach ($editorData['filenames'] as $idx => $filename) {
-                if (!$this->isGranted('ROLE_ADMIN')) {
-                    $this->addFlash('danger', 'You must have the admin role to submit changes.');
-                    return $this->redirectToRoute('jury_executable', ['execId' => $executable->getExecid()]);
-                }
                 $newContent = str_replace("\r\n", "\n", $submittedData['source' . $idx]);
+                if (substr($newContent, -1) != "\n") {
+                    // Ace swallows the newline at the end of file. Let's re-add it like most editors do.
+                    $newContent .= "\n";
+                }
+
 
                 $executableFile = new ExecutableFile();
                 $executableFile
                     ->setRank($idx)
-                    ->setImmutableExecutable($immutableExecutable)
                     ->setIsExecutable($editorData['executableBits'][$idx])
                     ->setFilename($filename)
                     ->setFileContent($newContent);
                 $this->em->persist($executableFile);
-                $immutableExecutable->addFile($executableFile);
+                $files[] = $executableFile;
             }
 
+            $immutableExecutable = new ImmutableExecutable($files);
+            $this->em->persist($immutableExecutable);
             $executable->setImmutableExecutable($immutableExecutable);
             $this->em->flush();
             $this->dj->auditlog('executable', $executable->getExecid(), 'updated');
@@ -457,31 +480,21 @@ class ExecutableController extends BaseController
         $ranks          = [];
 
         $files = $immutable_executable->getFiles()->toArray();
-        usort($files, fn($a,$b) => $a->getFilename() <=> $b->getFilename());
+        usort($files, fn($a, $b) => $a->getFilename() <=> $b->getFilename());
         foreach ($files as $file) {
             /** @var ExecutableFile $file */
             $filename = $file->getFilename();
             $content = $file->getFileContent();
+            $rank = $file->getRank();
             if (!mb_detect_encoding($content, null, true)) {
                 $skippedBinary[] = $filename;
                 continue; // Skip binary files.
             }
             $filenames[] = $filename;
-            $ranks[] = $file->getRank();
+            $ranks[] = $rank;
             $file_contents[] = $content;
             $executableBits[] = $file->isExecutable();
-
-            if (strpos($filename, '.') !== false) {
-                $aceFilenames[] = $filename;
-            } else {
-                [$firstLine] = explode("\n", $content, 2);
-                // If the file does not contain a dot, see if we have a shebang which we can use as filename.
-                if (preg_match('/^#!.*\/([^\/]+)$/', $firstLine, $matches)) {
-                    $aceFilenames[] = sprintf('temp.%s', $matches[1]);
-                } else {
-                    $aceFilenames[] = $filename;
-                }
-            }
+            $aceFilenames[] = $this->getAceFilename($filename, $content);
         }
 
         return [
@@ -493,5 +506,18 @@ class ExecutableController extends BaseController
             'files' => $file_contents,
             'executableBits' => $executableBits,
         ];
+    }
+
+    private function getAceFilename(string $filename, string $content): string
+    {
+        if (strpos($filename, '.') === false) {
+            // If the file does not contain a dot, see if we have a shebang which we can use as filename.
+            // We do this to hint the ACE editor to use a specific language.
+            [$firstLine] = explode("\n", $content, 2);
+            if (preg_match('/^#!.*\/([^\/]+)$/', $firstLine, $matches)) {
+                return sprintf('temp.%s', $matches[1]);
+            }
+        }
+        return $filename;
     }
 }

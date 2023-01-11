@@ -76,6 +76,15 @@ class ContestType extends AbstractExternalIdEntityType
             'required' => false,
             'help' => 'Time when the contest and scoreboard are hidden again. Usually a few hours/days after the contest ends.',
         ]);
+        $builder->add('allowSubmit', ChoiceType::class, [
+            'expanded' => true,
+            'label' => 'Allow submit',
+            'choices' => [
+                'Yes' => true,
+                'No' => false,
+            ],
+            'help' => 'When disabled, users cannot submit to the contest and a warning will be displayed.',
+        ]);
         $builder->add('processBalloons', ChoiceType::class, [
             'expanded' => true,
             'label' => 'Record balloons',
@@ -158,6 +167,11 @@ class ContestType extends AbstractExternalIdEntityType
         $builder->add('clearBanner', CheckboxType::class, [
             'label' => 'Delete banner',
             'required' => false,
+        ]);
+        $builder->add('warningMessage', TextType::class, [
+            'required' => false,
+            'label' => 'Scoreboard warning message',
+            'help' => 'When set, a warning message displayed above all scoreboards for this contest.',
         ]);
         $builder->add('problems', CollectionType::class, [
             'entry_type' => ContestProblemType::class,

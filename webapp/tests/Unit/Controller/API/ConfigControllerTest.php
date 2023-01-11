@@ -41,7 +41,7 @@ class ConfigControllerTest extends BaseTest
 
         static::assertIsArray($response);
         $secretvars = ['script_memory_limit', 'clar_answers', 'external_ccs_submission_url', 'data_source'];
-        foreach($secretvars as $secretvar) {
+        foreach ($secretvars as $secretvar) {
             static::assertArrayNotHasKey($secretvar, $response);
         }
     }
@@ -134,14 +134,14 @@ class ConfigControllerTest extends BaseTest
      */
     public function testConfigCheckerWorksForAdmin(): void
     {
-        // In the test setup, the config check returns some errors so expected result is 500.
-        $response = $this->verifyApiJsonResponse('GET', $this->endpoint .'/check', 500, 'admin');
+        // In the test setup, the config check returns some errors so expected result is 260.
+        $response = $this->verifyApiJsonResponse('GET', $this->endpoint .'/check', 260, 'admin');
 
         $sections = ['System', 'Configuration', 'Contests', 'Problems and languages', 'Teams', 'External identifiers'];
         static::assertIsArray($response);
         static::assertEquals($sections, array_keys($response));
 
-        foreach($sections as $section) {
+        foreach ($sections as $section) {
             static::assertIsArray($response[$section]);
             static::assertGreaterThan(0, count($response[$section]));
         }
@@ -177,7 +177,7 @@ class ConfigControllerTest extends BaseTest
      */
     public function testConfigRequestNonExistentVariableThrowsError(): void
     {
-        $this->verifyApiJsonResponse('GET', $this->endpoint . '?name=not_exist', 500);
+        $this->verifyApiJsonResponse('GET', $this->endpoint . '?name=not_exist', 400);
     }
 
     public function provideUsers(): Generator

@@ -6,6 +6,7 @@ use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use JMS\Serializer\Annotation as Serializer;
+use OpenApi\Annotations as OA;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\Validator\Constraints as Assert;
@@ -55,6 +56,7 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
      * @ORM\Column(type="string", name="icpcid", length=255, options={"comment"="Team ID in the ICPC system",
      *                            "collation"="utf8mb4_bin"}, nullable=true)
      * @Serializer\SerializedName("icpc_id")
+     * @OA\Property(nullable=true)
      */
     protected ?string $icpcid;
 
@@ -65,8 +67,10 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
     private string $name = '';
 
     /**
-     * @ORM\Column(type="string", name="display_name", length=255, options={"comment"="Team display name", "collation"="utf8mb4_bin"},
+     * @ORM\Column(type="string", name="display_name", length=255,
+     *     options={"comment"="Team display name", "collation"="utf8mb4_bin"},
      *                            nullable=true)
+     * @OA\Property(nullable=true)
      */
     private ?string $display_name = null;
 
@@ -80,9 +84,11 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
     private bool $enabled = true;
 
     /**
-     * @ORM\Column(type="text", length=4294967295, name="publicdescription", options={"comment"="Public team definition; for example: Team member names (freeform)"},
+     * @ORM\Column(type="text", length=4294967295, name="publicdescription",
+     *     options={"comment"="Public team definition; for example: Team member names (freeform)"},
      *                          nullable=true)
      * @Serializer\Groups({"Nonstrict"})
+     * @OA\Property(nullable=true)
      */
     private ?string $publicDescription;
 
@@ -94,7 +100,8 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
     private ?string $room;
 
     /**
-     * @ORM\Column(type="text", length=4294967295, name="internalcomments", options={"comment"="Internal comments about this team (jury only)"},
+     * @ORM\Column(type="text", length=4294967295, name="internalcomments",
+     *     options={"comment"="Internal comments about this team (jury only)"},
      *                          nullable=true)
      * @Serializer\Exclude()
      */
@@ -103,7 +110,7 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
     /**
      * @var double|string|null
      * @ORM\Column(type="decimal", precision=32, scale=9, name="judging_last_started",
-     *     options={"comment"="Start time of last judging for priorization",
+     *     options={"comment"="Start time of last judging for prioritization",
      *              "unsigned"=true}, nullable=true)
      * @Serializer\Exclude()
      */
@@ -228,7 +235,7 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
         return $this;
     }
 
-    public function getIcpcid(): ?string
+    public function getIcpcId(): ?string
     {
         return $this->icpcid;
     }
@@ -416,6 +423,7 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
      * @Serializer\VirtualProperty()
      * @Serializer\SerializedName("organization_id")
      * @Serializer\Type("string")
+     * @OA\Property(nullable=true)
      */
     public function getAffiliationId(): ?int
     {
@@ -431,6 +439,16 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
     public function getCategory(): ?TeamCategory
     {
         return $this->category;
+    }
+
+    /**
+     * @Serializer\VirtualProperty()
+     * @Serializer\SerializedName("hidden")
+     * @Serializer\Type("bool")
+     */
+    public function getHidden(): bool
+    {
+        return !$this->getCategory() || !$this->getCategory()->getVisible();
     }
 
     public function __construct()
@@ -556,6 +574,7 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
      * @Serializer\SerializedName("affiliation")
      * @Serializer\Type("string")
      * @Serializer\Groups({"Nonstrict"})
+     * @OA\Property(nullable=true)
      */
     public function getAffiliationName(): ?string
     {
@@ -567,6 +586,7 @@ class Team extends BaseApiEntity implements ExternalRelationshipEntityInterface,
      * @Serializer\Type("string")
      * @Serializer\Groups({"Nonstrict"})
      * @Serializer\Expose(if="context.getAttribute('config_service').get('show_flags')")
+     * @OA\Property(nullable=true)
      */
     public function getNationality() : ?string
     {

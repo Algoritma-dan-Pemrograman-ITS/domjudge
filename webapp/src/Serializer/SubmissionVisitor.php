@@ -46,7 +46,7 @@ class SubmissionVisitor implements EventSubscriberInterface
 
     public function onPostSerialize(ObjectEvent $event): void
     {
-        if ($this->dj->checkrole('jury')) {
+        if ($this->dj->checkrole('api_source_reader')) {
             /** @var JsonSerializationVisitor $visitor */
             $visitor = $event->getVisitor();
             /** @var Submission $submission */
@@ -63,7 +63,13 @@ class SubmissionVisitor implements EventSubscriberInterface
                 'files',
                 null
             );
-            $visitor->visitProperty($property, [['href' => $route, 'mime' => 'application/zip']]);
+            $visitor->visitProperty($property, [
+                [
+                    'href'     => $route,
+                    'mime'     => 'application/zip',
+                    'filename' => 'submission.zip',
+                ]
+            ]);
         }
     }
 }

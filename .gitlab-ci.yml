@@ -1,21 +1,17 @@
 include:
-  - '/gitlab/ci/sast.yml'
   - '/gitlab/ci/unit.yml'
   - '/gitlab/ci/integration.yml'
-  - '/gitlab/ci/visual.yml'
   - '/gitlab/ci/webstandard.yml'
   - '/gitlab/ci/template.yml'
   - '/gitlab/ci/misc.yml'
 
 stages:
   - test
-  - visual_pre
   - integration
-  - compare
   - accessibility
+  - chroot_checks
   - unit
   - style
   - ci_checks
-  - sast
 
 image: domjudge/gitlabci:2.1

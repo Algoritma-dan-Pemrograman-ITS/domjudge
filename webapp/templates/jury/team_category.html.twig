@@ -65,7 +65,7 @@
         <p>
             {{ button(path('jury_team_category_edit', {'categoryId': teamCategory.categoryid}), 'Edit', 'primary', 'edit') }}
             {{ button(path('jury_team_category_delete', {'categoryId': teamCategory.categoryid}), 'Delete', 'danger', 'trash-alt', true) }}
-            {{ button(path('jury_team_category_request_remaining', {'categoryId': teamCategory.categoryid}), 'Judge remaining', 'secondary', 'gavel') }}
+            {{ button(path('jury_team_category_request_remaining', {'categoryId': teamCategory.categoryid}), 'Judge remaining testcases', 'secondary', 'gavel') }}
         </p>
     {% endif %}
 
@@ -78,15 +78,15 @@
                 <table class="data-table table table-sm table-striped table-hover">
                     <thead>
                     <tr>
-                        <th>ID</th>
+                        <th style="text-align: right;">ID</th>
                         <th>Teamname</th>
                     </tr>
                     </thead>
                     <tbody>
                     {% for team in teamCategory.teams %}
                         <tr>
-                            <td>
-                                <a href="{{ path('jury_team', {'teamId': team.teamid}) }}">{{ team.teamid }}</a>
+                            <td style="text-align: right">
+                                <a href="{{ path('jury_team', {'teamId': team.teamid}) }}">{{ team | entityIdBadge('t') }}</a>
                             </td>
                             <td>
                                 <a href="{{ path('jury_team', {'teamId': team.teamid}) }}">{{ team.effectiveName }}</a>

@@ -5,6 +5,7 @@ use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use JMS\Serializer\Annotation as Serializer;
+use OpenApi\Annotations as OA;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -22,7 +23,7 @@ use Symfony\Component\Validator\Constraints as Assert;
  * @Serializer\VirtualProperty(
  *     "hidden",
  *     exp="!object.getVisible()",
- *     options={@Serializer\Type("boolean")}
+ *     options={@Serializer\Type("boolean"), @Serializer\Groups({"Nonstrict"})}
  * )
  * @UniqueEntity("externalid")
  */
@@ -53,6 +54,7 @@ class TeamCategory extends BaseApiEntity
      *              "collation"="utf8mb4_bin"},
      *     nullable=true)
      * @Serializer\SerializedName("icpc_id")
+     * @OA\Property(nullable=true)
      */
     protected ?string $icpcid = null;
 
@@ -78,6 +80,7 @@ class TeamCategory extends BaseApiEntity
      *     options={"comment"="Background colour on the scoreboard"},
      *     nullable=true)
      * @Serializer\Groups({"Nonstrict"})
+     * @OA\Property(nullable=true)
      */
     private ?string $color;
 

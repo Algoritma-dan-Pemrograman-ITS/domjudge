@@ -12,21 +12,23 @@ class TeamControllerTest extends JuryControllerTest
     protected static string  $baseUrl                  = '/jury/teams';
     protected static array   $exampleEntries           = ['exteam', 'DOMjudge', 'System', 'UU'];
     protected static string  $shortTag                 = 'team';
-    protected static array   $deleteEntities           = ['name' => ['DOMjudge']];
+    protected static array   $deleteEntities           = ['DOMjudge','Example teamname'];
+    protected static string  $deleteEntityIdentifier   = 'name';
     protected static string  $getIDFunc                = 'getTeamid';
     protected static string  $className                = Team::class;
     protected static array   $DOM_elements             = ['h1' => ['Teams']];
     protected static string  $addForm                  = 'team[';
     protected static array   $addEntitiesShown         = ['icpcid', 'displayName', 'room'];
+    protected static array   $overviewNotShown         = ['addUserForTeam'];
     protected static array   $addEntitiesCount         = ['contests'];
-    protected static array $addEntities                = [['name' => 'New Team',
+    protected static array   $addEntities              = [['name' => 'New Team',
                                                            'displayName' => 'New Team Display Name',
                                                            'category' => '3',
                                                            'publicdescription' => 'Some members',
                                                            'penalty' => '0',
                                                            'room' => 'The first room',
                                                            'internalcomments' => 'This is a team without a user',
-                                                           'contests' => ['1'],
+                                                           'contests' => [],
                                                            'enabled' => '1',
                                                            'addUserForTeam' => Team::DONT_ADD_USER],
                                                           ['name' => 'Another Team',

@@ -77,6 +77,7 @@ class UserController extends BaseController
             'name'       => ['title' => 'name', 'sort' => true],
             'email'      => ['title' => 'email', 'sort' => true],
             'user_roles' => ['title' => 'roles', 'sort' => true],
+            'teamid'     => ['title' => '', 'sort' => false, 'render' => 'entity_id_badge'],
             'team'       => ['title' => 'team', 'sort' => true],
         ];
         if ( in_array('ipaddress', $this->config->get('auth_methods')) ) {
@@ -114,8 +115,12 @@ class UserController extends BaseController
             }
 
             if ($u->getTeam()) {
+                $userdata['teamid'] = [
+                    'value' => $u->getTeam(),
+                    'idPrefix' => 't',
+                ];
                 $userdata['team'] = [
-                    'value' => 't' . $u->getTeam()->getTeamid() . ' (' . $u->getTeamName() . ')',
+                    'value' => $u->getTeamName(),
                     'sortvalue' => $u->getTeam()->getTeamid(),
                     'link' => $this->generateUrl('jury_team', [
                         'teamId' => $u->getTeam()->getTeamid(),
@@ -130,7 +135,9 @@ class UserController extends BaseController
 
             // Render IP address nicely.
             foreach (['ip_address', 'last_ip_address'] as $field) {
-                if (!array_key_exists($field, $userdata)) continue;
+                if (!array_key_exists($field, $userdata)) {
+                    continue;
+                }
                 if ($userdata[$field]['value']) {
                     $userdata[$field]['value'] = Utils::printhost($userdata[$field]['value']);
                 }
@@ -214,7 +221,8 @@ class UserController extends BaseController
         ]);
     }
 
-    public function checkPasswordLength(User $user, FormInterface $form): ?Response {
+    public function checkPasswordLength(User $user, FormInterface $form): ?Response
+    {
         if ($user->getPlainPassword() && strlen($user->getPlainPassword()) < static::MIN_PASSWORD_LENGTH) {
             $this->addFlash('danger', "Password should be " . static::MIN_PASSWORD_LENGTH . "+ chars.");
             return $this->render('jury/user_edit.html.twig', [
@@ -341,27 +349,26 @@ class UserController extends BaseController
 
             $changes = [];
             foreach ($users as $user) {
-                 $doit = false;
-                 $roles = $user->getRoleList();
+                $doit = false;
+                $roles = $user->getRoleList();
 
-                 $isjury = in_array('jury', $roles);
-                 $isadmin = in_array('admin', $roles);
+                $isjury = in_array('jury', $roles);
+                $isadmin = in_array('admin', $roles);
 
-                 if (in_array('team', $groups) || in_array('team_nopass', $groups)) {
-                     if ($user->getTeam() && ! $isjury && ! $isadmin) {
-                         if (in_array('team', $groups) || empty($user->getPassword())) {
-                             $doit = true;
-                             $role = 'team';
-                         }
-                     }
-                 }
+                if (in_array('team', $groups) || in_array('team_nopass', $groups)) {
+                    if ($user->getTeam() && ! $isjury && ! $isadmin) {
+                        if (in_array('team', $groups) || empty($user->getPassword())) {
+                            $doit = true;
+                            $role = 'team';
+                        }
+                    }
+                }
 
-                 if ((in_array('judge', $groups) && $isjury) ||
-                    (in_array('admin', $groups) && $isadmin))
-                 {
-                     $doit = true;
-                     $role = in_array('admin', $groups) ? 'admin' : 'judge';
-                 }
+                if ((in_array('judge', $groups) && $isjury) ||
+                    (in_array('admin', $groups) && $isadmin)) {
+                    $doit = true;
+                    $role = in_array('admin', $groups) ? 'admin' : 'judge';
+                }
 
                 if ($doit) {
                     $newpass = Utils::generatePassword(false);
@@ -390,5 +397,26 @@ class UserController extends BaseController
         return $this->render('jury/user_generate_passwords.html.twig', [
             'form' => $form->createView(),
         ]);
+    }
+
+    /**
+     * @Route("/reset_login_status", name="jury_reset_login_status")
+     * @IsGranted("ROLE_ADMIN")
+     */
+    public function resetTeamLoginStatus(Request $request): Response
+    {
+        /** @var Role $teamRole */
+        $teamRole = $this->em->getRepository(Role::class)->findOneBy(['dj_role' => 'team']);
+        $count = 0;
+        foreach ($teamRole->getUsers() as $user) {
+            /** @var User $user */
+            $user->setFirstLogin(null);
+            $user->setLastLogin(null);
+            $user->setLastIpAddress(null);
+            $count++;
+        }
+        $this->em->flush();
+        $this->addFlash('success', 'Reset login status all ' . $count . ' users with the team role.');
+        return $this->redirect($this->generateUrl('jury_users'));
     }
 }

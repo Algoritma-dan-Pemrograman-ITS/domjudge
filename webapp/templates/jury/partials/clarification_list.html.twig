@@ -39,23 +39,29 @@
             {%- endif %}
 
             <td data-order="{{ clarification.submittime }}"><a href="{{ link }}">{{ clarification.submittime | printtime(null, clarification.contest) }}</a></td>
+            {%- set recipientBadge = '' %}
+            {%- set senderBadge = '' %}
             {%- if clarification.sender is null %}
                 {%- set sender = 'Jury' %}
                 {%- if clarification.recipient is null %}
                     {%- set recipient = 'All' %}
                 {%- else %}
                     {%- set recipient = clarification.recipient.effectiveName %}
+                    {%- set recipientBadge = clarification.recipient | entityIdBadge('t') %}
                 {%- endif %}
             {%- else %}
                 {%- set recipient = 'Jury' %}
                 {%- set sender = clarification.sender.effectiveName %}
+                {%- set senderBadge = clarification.sender | entityIdBadge('t') %}
             {%- endif %}
 
-            <td><a href="{{ link }}" title="{{ sender }}">{{ sender | u.truncate(teamname_max_length, '…') }}</a></td>
-            <td><a href="{{ link }}" title="{{ recipient }}">{{ recipient | u.truncate(teamname_max_length, '…') }}</a></td>
+            <td><a href="{{ link }}" title="{{ sender }}">{{ senderBadge | raw }}</a>&nbsp;
+                <a href="{{ link }}" title="{{ sender }}">{{ sender | u.truncate(teamname_max_length, '…') }}</a></td>
+            <td><a href="{{ link }}" title="{{ recipient }}">{{ recipientBadge | raw }}</a>&nbsp;
+                <a href="{{ link }}" title="{{ recipient }}">{{ recipient | u.truncate(teamname_max_length, '…') }}</a></td>
             <td><a href="{{ link }}">
                     {%- if clarification.problem -%}
-                        problem {{ clarification.problem.contestProblems.first.shortname -}}
+                        problem {{ clarification.problem.contestProblems.first | problemBadge -}}
                     {%- elseif clarification.category -%}
                         {{- categories[clarification.category]|default('general') -}}
                     {%- else -%}

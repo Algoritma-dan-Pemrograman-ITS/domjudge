@@ -20,6 +20,8 @@ use Prometheus\RenderTextFormat;
 /**
  * @Route("/metrics")
  * @IsGranted("ROLE_API_READER")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
  * @OA\Tag(name="Metrics")
  */
 class MetricsController extends AbstractFOSRestController
@@ -62,6 +64,7 @@ class MetricsController extends AbstractFOSRestController
         $m['submissions_unverified'] = $registry->getOrRegisterGauge('domjudge', 'submissions_unverified', "Number of unverified submissions", ['contest']);
         $m['submissions_queued']     = $registry->getOrRegisterGauge('domjudge', 'submissions_queued', "Number of queued submissions", ['contest']);
         $m['submissions_perteam']    = $registry->getOrRegisterGauge('domjudge', 'submissions_perteam', "Number of teams that have a queued submission", ['contest']);
+        $m['submissions_judging']    = $registry->getOrRegisterGauge('domjudge', 'submissions_judging', 'Number of submissions that are actively judged', ['contest']);
 
         // Get global team login metrics.
         $m['teams']           = $registry->getOrRegisterGauge('domjudge', 'teams', "Total number of teams", ['contest']);
@@ -74,6 +77,8 @@ class MetricsController extends AbstractFOSRestController
             ->select('t', 'u')
             ->from(Team::class, 't')
             ->leftJoin('t.users', 'u')
+            ->join('t.category', 'cat')
+            ->andWhere('cat.visible = true')
             ->getQuery()
             ->getResult();
 
@@ -84,14 +89,14 @@ class MetricsController extends AbstractFOSRestController
 
             // Get submissions stats for the contest.
             /** @var Submission[] $submissions */
-            list($submissions, $submissionCounts) = $this->submissionService->getSubmissionList([$contest->getCid() => $contest], [], 0);
+            list($submissions, $submissionCounts) = $this->submissionService->getSubmissionList([$contest->getCid() => $contest], ['visible' => true], 0);
             foreach ($submissionCounts as $kind => $count) {
                 $m['submissions_' . $kind]->set((int)$count, $labels);
             }
             // Get team submission stats for the contest.
             $teamids_correct = [];
             $teamids_submitted = [];
-            foreach($submissions as $s) {
+            foreach ($submissions as $s) {
                 if ($s->getResult() == "correct") {
                     $teamids_correct[$s->getTeam()->getTeamid()] = 1;
                 }
@@ -114,6 +119,7 @@ class MetricsController extends AbstractFOSRestController
                     ->join('t.category', 'cat')
                     ->leftJoin('cat.contests', 'cc')
                     ->andWhere('c.cid = :cid OR cc.cid = :cid')
+                    ->andWhere('cat.visible = true')
                     ->setParameter('cid', $contest->getCid())
                     ->getQuery()
                     ->getResult();
@@ -136,7 +142,6 @@ class MetricsController extends AbstractFOSRestController
             }
             $m['teams_logged_in']->set($teams_logged_in, $labels);
         }
-
 
         // Kinda ugly that we have to go to the registry directly to get the metrics out for
         // rendering, but it seems to work well enough.

@@ -178,8 +178,7 @@ abstract class BaseController extends AbstractController
         EntityManagerInterface $entityManager,
         array $primaryKeyData,
         EventLogService $eventLogService
-    ): void
-    {
+    ): void {
         // Used to remove data from the rank and score caches.
         $teamId = null;
         if ($entity instanceof Team) {
@@ -195,6 +194,32 @@ abstract class BaseController extends AbstractController
         if ($entity instanceof Contest) {
             $cid = $entity->getCid();
         }
+
+        // Add an audit log entry.
+        $auditLogType = Utils::tableForEntity($entity);
+        $DOMJudgeService->auditlog($auditLogType, implode(', ', $primaryKeyData), 'deleted');
+
+        // Trigger the delete event. We need to do this before deleting the entity to make
+        // sure we can still find the entity in the table.
+        if ($endpoint = $eventLogService->endpointForEntity($entity)) {
+            foreach ($contestsForEntity as $contest) {
+                // When the $entity is a contest it has no id anymore after the EntityManager->remove
+                // for this reason we either remember it or check all other contests and use their cid.
+                if (!$entity instanceof Contest) {
+                    $cid = $contest->getCid();
+                }
+                $dataId = $primaryKeyData[0];
+                if ($entity instanceof ContestProblem) {
+                    $dataId = $entity->getProbid();
+                }
+                // TODO: cascade deletes. Maybe use getDependentEntities()?
+                $eventLogService->log($endpoint, $dataId,
+                    EventLogService::ACTION_DELETE,
+                    $cid, null, null, false);
+            }
+        }
+
+        // Now actually delete the entity.
         $entityManager->wrapInTransaction(function () use ($entityManager, $entity) {
             if ($entity instanceof Problem) {
                 // Deleting a problem is a special case: its dependent tables do not
@@ -218,29 +243,6 @@ abstract class BaseController extends AbstractController
             $entityManager->remove($entity);
         });
 
-        // Add an audit log entry.
-        $auditLogType = Utils::tableForEntity($entity);
-        $DOMJudgeService->auditlog($auditLogType, implode(', ', $primaryKeyData), 'deleted');
-
-        // Trigger the delete event.
-        if ($endpoint = $eventLogService->endpointForEntity($entity)) {
-            foreach ($contestsForEntity as $contest) {
-                // When the $entity is a contest it has no id anymore after the EntityManager->remove
-                // for this reason we either remember it or check all other contests and use their cid.
-                if (!$entity instanceof Contest) {
-                    $cid = $contest->getCid();
-                }
-                $dataId = $primaryKeyData[0];
-                if ($entity instanceof ContestProblem) {
-                    $dataId = $entity->getProbid();
-                }
-                // TODO: cascade deletes. Maybe use getDependentEntities()?
-                $eventLogService->log($endpoint, $dataId,
-                    EventLogService::ACTION_DELETE,
-                    $cid, null, null, false);
-            }
-        }
-
         if ($entity instanceof Team) {
             // No need to do this in a transaction, since the chance of a team
             // with same ID being created at the same time is negligible.
@@ -259,8 +261,7 @@ abstract class BaseController extends AbstractController
         array $entities,
         array $relations,
         EntityManagerInterface $entityManager
-    ): array
-    {
+    ): array {
         $isError          = false;
         $propertyAccessor = PropertyAccess::createPropertyAccessor();
         $inflector        = InflectorFactory::create()->build();
@@ -269,9 +270,10 @@ abstract class BaseController extends AbstractController
         $primaryKeyData   = [];
         $messages         = [];
         foreach ($entities as $entity) {
+            $primaryKeyDataTemp = [];
             foreach ($metadata->getIdentifierColumnNames() as $primaryKeyColumn) {
                 $primaryKeyColumnValue = $propertyAccessor->getValue($entity, $primaryKeyColumn);
-                $primaryKeyData[]      = $primaryKeyColumnValue;
+                $primaryKeyDataTemp[]      = $primaryKeyColumnValue;
 
                 // Check all relationships.
                 foreach ($relations as $table => $tableRelations) {
@@ -331,6 +333,7 @@ abstract class BaseController extends AbstractController
                     }
                 }
             }
+            $primaryKeyData[] = $primaryKeyDataTemp;
         }
         return [$isError, $primaryKeyData, $messages];
     }
@@ -373,14 +376,14 @@ abstract class BaseController extends AbstractController
             }
 
             $msgList = [];
-            foreach ($entities as $entity) {
-                $this->commitDeleteEntity($entity, $DOMJudgeService, $entityManager, $primaryKeyData, $eventLogService);
+            foreach ($entities as $id => $entity) {
+                $this->commitDeleteEntity($entity, $DOMJudgeService, $entityManager, $primaryKeyData[$id], $eventLogService);
                 $description = $entity->getShortDescription();
                 $msgList[] = sprintf('Successfully deleted %s %s "%s"',
-                                     $readableType, implode(', ', $primaryKeyData), $description);
+                                     $readableType, implode(', ', $primaryKeyData[$id]), $description);
             }
 
-            $msg = implode('\n', $msgList);
+            $msg = implode("\n", $msgList);
             $this->addFlash('success', $msg);
             if ($request->isXmlHttpRequest()) {
                 return new JsonResponse(['url' => $redirectUrl]);
@@ -396,7 +399,7 @@ abstract class BaseController extends AbstractController
 
         $data = [
             'type' => $readableType,
-            'primaryKey' => implode(', ', $primaryKeyData),
+            'primaryKey' => implode(', ', array_merge(...$primaryKeyData)),
             'description' => implode(',', $descriptions),
             'messages' => $messages,
             'isError' => $isError,
@@ -541,13 +544,13 @@ abstract class BaseController extends AbstractController
             }
         } else {
             if ($inProgress !== []) {
-                $this->addFlash('warning', sprintf('Please be patient, these judgings are still in progress: %s', implode(',', $inProgress)));
+                $this->addFlash('warning', sprintf('Please be patient, these judgings are still in progress: %s', implode(', ', $inProgress)));
             }
             if ($alreadyRequested !== []) {
-                $this->addFlash('warning', sprintf('These judgings were already requested to be judged completely: %s', implode(',', $alreadyRequested)));
+                $this->addFlash('warning', sprintf('These judgings were already requested to be judged completely: %s', implode(', ', $alreadyRequested)));
             }
             if ($invalidJudgings !== []) {
-                $this->addFlash('warning', sprintf('These judgings were skipped as they were superseded by other judgings: %s', implode(',', $invalidJudgings)));
+                $this->addFlash('warning', sprintf('These judgings were skipped as they were superseded by other judgings: %s', implode(', ', $invalidJudgings)));
             }
         }
         if ($numRequested === 0) {

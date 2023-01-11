@@ -90,7 +90,7 @@ EOF;
     public function testBannerManagement(): void
     {
         // First, make sure we have no banner
-        $id = 2;
+        $id = 1;
         if ($this->objectClassForExternalId !== null) {
             $id = $this->resolveEntityId($this->objectClassForExternalId, (string)$id);
         }
@@ -107,10 +107,11 @@ EOF;
         $object = $this->verifyApiJsonResponse('GET', $url, 200, $this->apiUser);
         $bannerConfig = [
             [
-                'href'   => "contests/$id/banner",
-                'mime'   => 'image/svg+xml',
-                'width'  => 510,
-                'height' => 1122
+                'href'     => "contests/$id/banner",
+                'mime'     => 'image/svg+xml',
+                'width'    => 510,
+                'height'   => 1122,
+                'filename' => 'banner.svg',
             ],
         ];
         self::assertSame($bannerConfig, $object['banner']);

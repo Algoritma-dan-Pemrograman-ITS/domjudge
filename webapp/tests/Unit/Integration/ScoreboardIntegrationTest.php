@@ -140,7 +140,7 @@ class ScoreboardIntegrationTest extends KernelTestCase
         $category = $this->em->getRepository(TeamCategory::class)
             ->findOneBy(['sortorder' => 0]);
 
-        for($i=0; $i<self::NUM_TEAMS; $i++) {
+        for ($i=0; $i<self::NUM_TEAMS; $i++) {
             $this->teams[$i] = new Team();
             $this->teams[$i]
                 ->setName(self::CONTEST_NAME.' team '.$i)
@@ -148,7 +148,7 @@ class ScoreboardIntegrationTest extends KernelTestCase
             $this->em->persist($this->teams[$i]);
         }
 
-        for($i=0; $i<self::NUM_PROBLEMS; $i++) {
+        for ($i=0; $i<self::NUM_PROBLEMS; $i++) {
             $letter = chr(ord('a') + $i);
             $this->problems[$i] = new Problem();
             $this->problems[$i]
@@ -178,8 +178,12 @@ class ScoreboardIntegrationTest extends KernelTestCase
             $this->em->remove($this->contest);
             $this->em->remove($this->judgehost);
             $this->em->remove($this->rejudging);
-            foreach ($this->teams as $team)    $this->em->remove($team);
-            foreach ($this->problems as $problem) $this->em->remove($problem);
+            foreach ($this->teams as $team) {
+                $this->em->remove($team);
+            }
+            foreach ($this->problems as $problem) {
+                $this->em->remove($problem);
+            }
         }
 
         $this->em->flush();
@@ -336,7 +340,7 @@ class ScoreboardIntegrationTest extends KernelTestCase
         ];
 
         foreach ([ false, true ] as $jury) {
-            foreach([ null, '+1:00:00', '+1:20:00' ] as $freeze) {
+            foreach ([ null, '+1:00:00', '+1:20:00' ] as $freeze) {
                 $this->contest->setFreezetimeString($freeze);
                 $this->recalcScoreCaches();
 
@@ -372,7 +376,7 @@ class ScoreboardIntegrationTest extends KernelTestCase
         ];
 
         foreach ([ false, true ] as $jury) {
-            foreach([ null, '+1:00:00', '+1:20:00' ] as $freeze) {
+            foreach ([ null, '+1:00:00', '+1:20:00' ] as $freeze) {
                 $this->contest->setFreezetimeString($freeze);
                 $this->recalcScoreCaches();
 
@@ -408,7 +412,7 @@ class ScoreboardIntegrationTest extends KernelTestCase
         }
     }
 
-    function assertScoresMatch($expected_scores, $scoreboard)
+    protected function assertScoresMatch($expected_scores, $scoreboard)
     {
         $scores = $scoreboard->getScores();
 
@@ -425,13 +429,17 @@ class ScoreboardIntegrationTest extends KernelTestCase
         }
     }
 
-    function assertFTSMatch($expected_fts, $scoreboard)
+    protected function assertFTSMatch($expected_fts, $scoreboard)
     {
         $matrix = $scoreboard->getMatrix();
         $teams = [];
         $probs = [];
-        foreach ($scoreboard->getTeams() as $team) $teams[$team->getTeamid()] = $team;
-        foreach ($scoreboard->getProblems() as $prob) $probs[$prob->getProbid()] = $prob;
+        foreach ($scoreboard->getTeams() as $team) {
+            $teams[$team->getTeamid()] = $team;
+        }
+        foreach ($scoreboard->getProblems() as $prob) {
+            $probs[$prob->getProbid()] = $prob;
+        }
 
         $fts_probid2teamid = [];
         foreach ($expected_fts as $row) {
@@ -452,13 +460,13 @@ class ScoreboardIntegrationTest extends KernelTestCase
         }
     }
 
-    function recalcScoreCaches()
+    protected function recalcScoreCaches()
     {
         $this->em->flush();
         $this->ss->refreshCache($this->contest);
     }
 
-    function createDefaultSubmissions()
+    protected function createDefaultSubmissions()
     {
         $lang = $this->em->getRepository(Language::class)->find('cpp');
 
@@ -480,15 +488,14 @@ class ScoreboardIntegrationTest extends KernelTestCase
         // No submissions for $this->teams[2]
     }
 
-    function createSubmission(
+    protected function createSubmission(
         Language $language,
         Problem $problem,
         Team $team,
         float $contest_time_seconds,
         $verdict,
         bool $verified = false
-    ): Submission
-    {
+    ): Submission {
         $cp = $this->em->getRepository(ContestProblem::class)->find(
             [ 'contest' => $this->contest, 'problem' => $problem ]
         );
@@ -526,12 +533,12 @@ class ScoreboardIntegrationTest extends KernelTestCase
         return $submission;
     }
 
-    function setConfig(string $name, $value)
+    public function setConfig(string $name, $value)
     {
         $this->configValues[$name] = $value;
     }
 
-    function getConfig(string $name)
+    public function getConfig(string $name)
     {
         if (!array_key_exists($name, $this->configValues)) {
             throw new Exception("No configuration value set for '$name'");

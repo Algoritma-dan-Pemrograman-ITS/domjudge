@@ -12,6 +12,7 @@ use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use Exception;
 use JMS\Serializer\Annotation as Serializer;
+use OpenApi\Annotations as OA;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\Validator\Constraints as Assert;
@@ -278,6 +279,14 @@ class Contest extends BaseApiEntity implements AssetEntityInterface
     private bool $enabled = true;
 
     /**
+     * @ORM\Column(type="boolean", name="allow_submit",
+     *     options={"comment"="Are submissions accepted in this contest?","default"="1"},
+     *     nullable=false)
+     * @Serializer\Groups({"Nonstrict"})
+     */
+    private bool $allowSubmit = true;
+
+    /**
      * @ORM\Column(type="boolean", name="process_balloons",
      *     options={"comment"="Will balloons be processed for this contest?","default"=1},
      *     nullable=false)
@@ -313,6 +322,24 @@ class Contest extends BaseApiEntity implements AssetEntityInterface
      * @Serializer\Exclude()
      */
     private bool $openToAllTeams = true;
+
+    /**
+     * @ORM\Column(type="text", length=65535, name="warning_message",
+     *     options={"comment"="Warning message for this contest shown on the scoreboards"},
+     *                          nullable=true)
+     * @Serializer\Groups({"Nonstrict"})
+     * @OA\Property(nullable=true)
+     */
+    private ?string $warningMessage = null;
+
+    /**
+     * @ORM\Column(type="boolean", name="is_locked",
+     *     options={"comment"="Is this contest locked for modifications?",
+     *              "default"=0},
+     *     nullable=false)
+     * @Serializer\Exclude()
+     */
+    private bool $isLocked = false;
 
     /**
      * @ORM\ManyToMany(targetEntity="Team", inversedBy="contests")
@@ -662,6 +689,28 @@ class Contest extends BaseApiEntity implements AssetEntityInterface
         return $this->enabled;
     }
 
+    public function setAllowSubmit(bool $allowSubmit): Contest
+    {
+        $this->allowSubmit = $allowSubmit;
+        return $this;
+    }
+
+    public function getAllowSubmit(): bool
+    {
+        return $this->allowSubmit;
+    }
+
+    public function getWarningMessage(): ?string
+    {
+        return $this->warningMessage;
+    }
+
+    public function setWarningMessage(?string $warningMessage): Contest
+    {
+        $this->warningMessage = (empty($warningMessage) ? null : $warningMessage);
+        return $this;
+    }
+
     public function setProcessBalloons(bool $processBalloons): Contest
     {
         $this->processBalloons = $processBalloons;
@@ -770,6 +819,17 @@ class Contest extends BaseApiEntity implements AssetEntityInterface
         return $this->openToAllTeams;
     }
 
+    public function isLocked(): bool
+    {
+        return $this->isLocked;
+    }
+
+    public function setIsLocked(bool $isLocked): Contest
+    {
+        $this->isLocked = $isLocked;
+        return $this;
+    }
+
     public function addTeam(Team $team): Contest
     {
         $this->teams[] = $team;
@@ -862,6 +922,7 @@ class Contest extends BaseApiEntity implements AssetEntityInterface
     /**
      * @Serializer\VirtualProperty()
      * @Serializer\Type("string")
+     * @OA\Property(nullable=true)
      */
     public function getScoreboardFreezeDuration(): ?string
     {

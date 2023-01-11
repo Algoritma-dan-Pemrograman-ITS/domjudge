@@ -39,6 +39,7 @@ class EventLogService implements ContainerAwareInterface
     const KEY_TABLES = 'tables';
     const KEY_USE_EXTERNAL_ID = 'use-external-id';
     const KEY_ALWAYS_USE_EXTERNAL_ID = 'always-use-external-id';
+    const KEY_SKIP_IN_EVENT_FEED = 'skip-in-event-feed';
 
     // Types of endpoints:
     const TYPE_CONFIGURATION = 'configuration';
@@ -134,6 +135,7 @@ class EventLogService implements ContainerAwareInterface
             self::KEY_ENTITY => User::class,
             self::KEY_TABLES => ['user'],
             self::KEY_USE_EXTERNAL_ID => true,
+            self::KEY_SKIP_IN_EVENT_FEED => true,
         ],
     ];
 
@@ -245,7 +247,6 @@ class EventLogService implements ContainerAwareInterface
             "EventLogService::log arguments: '%s' '%s' '%s' '%s' '%s' '%s'",
             [ $type, $dataidsCombined, $action, $contestId, $json, $idsCombined ]
         );
-
 
         // Gracefully fail since we may call this from the generic
         // jury/edit.php page where we don't know which table gets updated.
@@ -426,7 +427,7 @@ class EventLogService implements ContainerAwareInterface
 
                 if ($checkEvents) {
                     // Check if all references for this event are present; if not, add all static data.
-                    if (!$this->hasAllDependentObjectEvents($contest, $type, $jsonElement)) {
+                    if ($action !== static::ACTION_DELETE && !$this->hasAllDependentObjectEvents($contest, $type, $jsonElement)) {
                         // Not all dependent objects are present, so insert all static events.
                         $this->initStaticEvents($contest);
                         // If new references are added, we need to reload the contest,
@@ -591,7 +592,6 @@ class EventLogService implements ContainerAwareInterface
 
         $events = [];
         $firstEndpointId = null;
-        $firstEvent = null;
         foreach ($endpointIds as $index => $endpointId) {
             $event = new Event();
             $event
@@ -603,20 +603,7 @@ class EventLogService implements ContainerAwareInterface
             $events[] = $event;
             if ($firstEndpointId === null) {
                 $firstEndpointId = $endpointId;
-                $firstEvent = $event;
             }
-        }
-
-        // Now we can insert the event. However, before doing so,
-        // get an advisory lock to make sure no one else is doing the same.
-        $lockString = sprintf('domjudge.eventlog.%d.%s.%s',
-            $firstEvent->getContest()->getCid(),
-            $endpointType,
-            $firstEndpointId
-        );
-        if ($this->em->getConnection()->fetchOne('SELECT GET_LOCK(:lock, 1)',
-                ['lock' => $lockString]) != 1) {
-            throw new Exception('EventLogService::insertEvent failed to obtain lock: ' . $lockString);
         }
 
         // Note that for events without an ID (i.e. state), the endpointid
@@ -648,12 +635,6 @@ class EventLogService implements ContainerAwareInterface
             }
         }
         $this->em->flush();
-
-        // Make sure to release the lock again.
-        if ($this->em->getConnection()->fetchOne('SELECT RELEASE_LOCK(:lock)',
-                ['lock' => $lockString]) != 1) {
-            throw new Exception('EventLogService::insertEvent failed to release lock');
-        }
     }
 
     /**
@@ -684,6 +665,9 @@ class EventLogService implements ContainerAwareInterface
     {
         // Loop over all configuration endpoints with an URL and check if we have all data.
         foreach ($this->apiEndpoints as $endpoint => $endpointData) {
+            if ($endpointData[static::KEY_SKIP_IN_EVENT_FEED] ?? false) {
+                continue;
+            }
             if ($endpointData[EventLogService::KEY_TYPE] === EventLogService::TYPE_CONFIGURATION &&
                 isset($endpointData[EventLogService::KEY_URL])) {
                 $contestId = $contest->getApiId($this);
@@ -743,7 +727,7 @@ class EventLogService implements ContainerAwareInterface
                 });
 
                 // Insert the events.
-                $ids = array_map(function(array $row) {
+                $ids = array_map(function (array $row) {
                     return $row['id'];
                 }, $data);
                 $this->insertEvents($contest, $endpoint, $ids, $data);
@@ -831,7 +815,7 @@ class EventLogService implements ContainerAwareInterface
      */
     protected function getExistingEvents(array $events): array
     {
-        $endpointIds = array_map(function(Event $event) {
+        $endpointIds = array_map(function (Event $event) {
             return $event->getEndpointid();
         }, $events);
         /** @var Event[] $events */
@@ -852,7 +836,7 @@ class EventLogService implements ContainerAwareInterface
             ->getQuery()
             ->getResult();
 
-        return array_filter($events, function(Event $event) {
+        return array_filter($events, function (Event $event) {
             return $event->getAction() !== self::ACTION_DELETE;
         });
     }

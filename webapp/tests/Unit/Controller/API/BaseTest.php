@@ -94,6 +94,9 @@ abstract class BaseTest extends BaseBaseTest
             // Team user
             $server['PHP_AUTH_USER'] = 'demo';
             $server['PHP_AUTH_PW'] = 'demo';
+        } else {
+            $server['PHP_AUTH_USER'] = $user;
+            $server['PHP_AUTH_PW'] = $user;
         }
         $this->client->request($method, '/api' . $apiUri, [], $files, $server, $jsonData ? json_encode($jsonData) : null);
         $response = $this->client->getResponse();
@@ -126,7 +129,8 @@ abstract class BaseTest extends BaseBaseTest
         return json_decode($response, true);
     }
 
-    public function helperGetEndpointURL(string $apiEndpoint, ?string $id = null): string {
+    public function helperGetEndpointURL(string $apiEndpoint, ?string $id = null): string
+    {
         if (in_array($apiEndpoint, static::$rootEndpoints)) {
             $url = "/$apiEndpoint";
         } else {

@@ -2,6 +2,8 @@
 
 namespace App\Tests\Unit\Controller\Jury;
 
+use App\DataFixtures\Test\ClarificationFixture;
+use App\DataFixtures\Test\DemoPreStartContestFixture;
 use App\Tests\Unit\BaseTest;
 use Generator;
 
@@ -54,7 +56,6 @@ class ImportExportControllerTest extends BaseTest
     public function provideContests(): Generator
     {
         yield ['Demo contest'];
-        yield ['Demo practice session'];
     }
 
     public function provideSortOrders(): Generator
@@ -81,6 +82,7 @@ class ImportExportControllerTest extends BaseTest
      */
     public function testContestExport(string $cid, string $expectedYaml): void
     {
+        $this->loadFixtures([DemoPreStartContestFixture::class]);
         $this->verifyPageResponse('GET', '/jury/import-export', 200);
         ob_start();
         $this->client->submitForm('contest_export_export', ['contest_export[contest]'=>$cid]);
@@ -93,87 +95,39 @@ class ImportExportControllerTest extends BaseTest
 
     public function provideContestYamlContents(): Generator
     {
+        $year = date('Y')+1;
         $yaml =<<<HEREDOC
 name: 'Demo contest'
 short-name: demo
-start-time: '2021-01-01T11:00:00+00:00'
-duration: '26285:00:00.000'
+start-time: '{$year}-01-01T08:00:00+00:00'
+duration: '5:00:00.000'
 scoreboard-freeze-duration: '1:00:00'
 penalty-time: 20
-default-clars:
-    - 'No comment.'
-    - 'Read the problem statement carefully.'
-clar-categories:
-    - 'General issue'
-    - 'Technical issue'
-languages:
-    -
-        name: Ada
-    -
-        name: AWK
-    -
-        name: 'Bash shell'
-    -
-        name: C
-    -
-        name: C++
-    -
-        name: 'C#'
-    -
-        name: Fortran
-    -
-        name: Haskell
-    -
-        name: Java
-    -
-        name: JavaScript
-    -
-        name: Kotlin
-    -
-        name: Lua
-    -
-        name: Pascal
-    -
-        name: Perl
-    -
-        name: Prolog
-    -
-        name: 'Python 3'
-    -
-        name: R
-    -
-        name: Ruby
-    -
-        name: Scala
-    -
-        name: 'POSIX shell'
-    -
-        name: Swift
 problems:
     -
-        label: boolfind
-        letter: boolfind
-        name: 'Boolean switch search'
-        short-name: boolfind
-        color: green
-        rgb: '#008000'
-    -
-        label: fltcmp
-        letter: fltcmp
-        name: 'Float special compare test'
-        short-name: fltcmp
-        color: indianred
-        rgb: '#CD5C5C'
-    -
-        label: hello
-        letter: hello
+        label: A
+        letter: A
         name: 'Hello World'
         short-name: hello
-        color: skyblue
-        rgb: '#87CEEB'
+        color: mediumpurple
+        rgb: '#9486EA'
+    -
+        label: B
+        letter: B
+        name: 'Float special compare test'
+        short-name: fltcmp
+        color: orangered
+        rgb: '#E93603'
+    -
+        label: C
+        letter: C
+        name: 'Boolean switch search'
+        short-name: boolfind
+        color: saddlebrown
+        rgb: '#9B630C'
 
 HEREDOC;
-        yield ["2", $yaml];
+        yield ["1", $yaml];
     }
 
     /**
@@ -199,7 +153,7 @@ HEREDOC;
 2	exteam	3	Example teamname	Utrecht University	UU	NLD	utrecht
 '];
         yield ['li:contains("results.tsv") a:contains("for sort order 0")', 'results	1
-2	1	Gold Medal	0	0	0	Participants
+exteam	1	Gold Medal	0	0	0	Participants
 '];
         yield ['li:contains("results.tsv") a:contains("for sort order 1")', 'results	1
 '];
@@ -215,14 +169,15 @@ HEREDOC;
      */
     public function testClarificationsHtmlExport(): void
     {
+        $this->loadFixture(ClarificationFixture::class);
         $this->verifyPageResponse('GET', '/jury/import-export', 200);
         $link = $this->getCurrentCrawler()->filter('a:contains("clarifications.html")')->link();
         $this->client->click($link);
         self::assertSelectorExists('h1:contains("Clarifications for Demo contest")');
         self::assertSelectorExists('td:contains("Example teamname")');
-        self::assertSelectorExists('td:contains("hello: Hello World")');
-        self::assertSelectorExists('pre:contains("Can you tell me how to solve this problem?")');
-        self::assertSelectorExists('pre:contains("No, read the problem statement.")');
+        self::assertSelectorExists('td:contains("A: Hello World")');
+        self::assertSelectorExists('pre:contains("Is it necessary to read the problem statement carefully?")');
+        self::assertSelectorExists('pre:contains("Lunch is served")');
     }
 
     /**
@@ -230,11 +185,12 @@ HEREDOC;
      */
     public function testResultsHtmlExport(): void
     {
+        $this->loadFixture(ClarificationFixture::class);
         $this->verifyPageResponse('GET', '/jury/import-export', 200);
         $link = $this->getCurrentCrawler()->filter('li:contains("results.html") a:contains("for sort order 0")')->link();
         $this->client->click($link);
         self::assertSelectorExists('h1:contains("Results for Demo contest")');
         self::assertSelectorExists('th:contains("Example teamname")');
-        self::assertSelectorExists('th:contains("hello: Hello World")');
+        self::assertSelectorExists('th:contains("A: Hello World")');
     }
 }

@@ -48,12 +48,12 @@ class TeamControllerTest extends BaseTest
         $object = $this->verifyApiJsonResponse('GET', $url, 200, 'admin');
         $logoConfig = [
             [
-                'href'   => "contests/2/teams/$id/photo",
-                'mime'   => 'image/jpeg',
-                'width'  => 320,
-                'height' => 200
+                'href'     => "contests/1/teams/$id/photo",
+                'mime'     => 'image/jpeg',
+                'width'    => 320,
+                'height'   => 200,
+                'filename' => 'photo.jpg',
             ]
-
         ];
         self::assertSame($logoConfig, $object['photo']);
 

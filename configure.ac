@@ -65,12 +65,13 @@ AC_ARG_WITH([domjudge-user], [AS_HELP_STRING([--with-domjudge-user=USER],
 [User that owns password files (default: current user).])], [], [])
 
 if test "x$with_domjudge_user" = x; then
+	user=m4_esyscmd([id -un])
 	# Check and warn if running as root (without explicitly setting it):
-	if test "x$USER" = xroot; then
+	if test "x$user" = xroot; then
 		AC_MSG_ERROR([installing/running as root is STRONGLY DISCOURAGED, use --with-domjudge-user=root to override.])
 	fi
 
-	AC_SUBST(DOMJUDGE_USER,$USER)
+	AC_SUBST(DOMJUDGE_USER,$user)
 	AC_MSG_RESULT([$DOMJUDGE_USER (default: current user)])
 else
 	AC_SUBST(DOMJUDGE_USER,$with_domjudge_user)
@@ -190,6 +191,7 @@ AX_PATH(domserver_libvendordir, [$domserver_root/lib/vendor])
 AX_PATH(domserver_logdir,       [$domserver_root/log])
 AX_PATH(domserver_rundir,       [$domserver_root/run])
 AX_PATH(domserver_tmpdir,       [$domserver_root/tmp])
+AX_PATH(domserver_exampleprobdir, [$domserver_root/example_problems])
 AX_WITH_COMMENT(6,[     ])
 AX_PATH(judgehost_bindir,       [$judgehost_root/bin])
 AX_PATH(judgehost_etcdir,       [$judgehost_root/etc])
@@ -336,6 +338,7 @@ echo "    - run..............: AX_VAR_EXPAND($domserver_rundir)"
 echo "    - sql..............: AX_VAR_EXPAND($domserver_sqldir)"
 echo "    - tmp..............: AX_VAR_EXPAND($domserver_tmpdir)"
 echo "    - webapp...........: AX_VAR_EXPAND($domserver_webappdir)"
+echo "    - example_problems.: AX_VAR_EXPAND($domserver_exampleprobdir)"
 echo ""
 echo " * judgehost...........: AX_VAR_EXPAND($judgehost_root)"
 echo "    - bin..............: AX_VAR_EXPAND($judgehost_bindir)"

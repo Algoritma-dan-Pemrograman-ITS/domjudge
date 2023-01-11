@@ -17,6 +17,7 @@ use App\Entity\Problem;
 use App\Entity\Submission;
 use App\Entity\SubmissionFile;
 use App\Entity\Team;
+use App\Entity\TeamCategory;
 use App\Entity\Testcase;
 use App\Form\Type\SubmissionsFilterType;
 use App\Service\BalloonService;
@@ -155,6 +156,7 @@ class SubmissionController extends BaseController
         $filtersForForm['problem-id']  = $this->em->getRepository(Problem::class)->findBy(['probid' => $filtersForForm['problem-id'] ?? []]);
         $filtersForForm['language-id'] = $this->em->getRepository(Language::class)->findBy(['langid' => $filtersForForm['language-id'] ?? []]);
         $filtersForForm['team-id']     = $this->em->getRepository(Team::class)->findBy(['teamid' => $filtersForForm['team-id'] ?? []]);
+        $filtersForForm['category-id'] = $this->em->getRepository(TeamCategory::class)->findBy(['categoryid' => $filtersForForm['category-id'] ?? []]);
         $form = $this->createForm(SubmissionsFilterType::class, array_merge($filtersForForm, [
             "contests" => $contests,
         ]));
@@ -446,7 +448,11 @@ class SubmissionController extends BaseController
                 ->getQuery()
                 ->getSingleScalarResult();
             if ($numActiveJudgehosts == 0) {
-                $unjudgableReasons[] = 'No active judgehost. Add or enable judgehosts!';
+                $extraMsg = '';
+                if (!$this->config->get('judgehost_activated_by_default')) {
+                    $extraMsg = ' (judgehosts are disabled by default in your configuration)';
+                }
+                $unjudgableReasons[] = 'No active judgehost. Add or enable judgehosts' . $extraMsg . '!';
             }
 
             if (!$submission->getLanguage()->getAllowJudge()) {
@@ -500,6 +506,35 @@ class SubmissionController extends BaseController
                 'after' => 15,
                 'url' => $this->generateUrl('jury_submission', ['submitId' => $submission->getSubmitid()]),
             ];
+        } else {
+            $contestProblem = $submission->getContestProblem();
+            /** @var JudgeTask $judgeTask */
+            $judgeTask = $this->em->getRepository(JudgeTask::class)->findOneBy(['jobid' => $selectedJudging->getJudgingid()]);
+            if ($judgeTask !== null) {
+                $errors = [];
+                $this->maybeGetErrors('Compile config',
+                    $this->dj->getCompileConfig($submission),
+                    $judgeTask->getCompileConfig(),
+                    $errors);
+                $this->maybeGetErrors('Run config',
+                    $this->dj->getRunConfig($contestProblem, $submission),
+                    $judgeTask->getRunConfig(),
+                    $errors);
+                $this->maybeGetErrors('Compare config',
+                    $this->dj->getCompareConfig($contestProblem),
+                    $judgeTask->getCompareConfig(),
+                    $errors);
+                if (!empty($errors)) {
+                    if ($selectedJudging->getValid()) {
+                        $type = 'danger';
+                        $header = "Some parameters have changed since the judging was created, consider rejudging.\n\n";
+                    } else {
+                        $type = 'warning';
+                        $header = "Some parameters have changed since the judging was created, but this judging has been superseded, please verify if that needs a rejudging.\n\n";
+                    }
+                    $this->addFlash($type, $header . implode("\n", $errors));
+                }
+            }
         }
 
         return $this->render('jury/submission.html.twig', $twigData);
@@ -631,7 +666,10 @@ class SubmissionController extends BaseController
     public function teamOutputAction(Submission $submission, Contest $contest, JudgingRun $run): StreamedResponse
     {
         if ($run->getJudging()->getSubmission()->getSubmitid() !== $submission->getSubmitid() || $submission->getContest()->getCid() !== $contest->getCid()) {
-            throw new BadRequestHttpException('Problem while fetching team output');
+            throw new BadRequestHttpException('Integrity problem while fetching team output.');
+        }
+        if ($run->getOutput() === null) {
+            throw new BadRequestHttpException('No team output available (yet).');
         }
 
         $filename = sprintf('p%d.t%d.%s.run%d.team%d.out', $submission->getProblem()->getProbid(), $run->getTestcase()->getRank(),
@@ -869,7 +907,7 @@ class SubmissionController extends BaseController
                 unlink($file->getRealPath());
             }
 
-            if (!$submission) {
+            if (!$submittedSubmission) {
                 $this->addFlash('danger', $message);
                 return $this->redirectToRoute('jury_submission', ['submitId' => $submission->getSubmitid()]);
             }
@@ -1128,5 +1166,39 @@ class SubmissionController extends BaseController
         }
 
         return null;
+    }
+
+    /**
+     * @Route("/{submitId<\d+>}/create-tasks", name="jury_submission_create_tasks")
+     */
+    public function createJudgeTasks(string $submitId): RedirectResponse
+    {
+        $this->dj->unblockJudgeTasksForSubmission($submitId);
+        $this->addFlash('info', "Started judging for submission: $submitId");
+        return $this->redirectToRoute('jury_submission', ['submitId' => $submitId]);
+    }
+
+    private function maybeGetErrors(string $type, string $expectedConfigString, string $observedConfigString, array &$allErrors)
+    {
+        $expectedConfig = $this->dj->jsonDecode($expectedConfigString);
+        $observedConfig = $this->dj->jsonDecode($observedConfigString);
+        $errors = [];
+        foreach (array_keys($expectedConfig) as $k) {
+            if ($expectedConfig[$k] != $observedConfig[$k]) {
+                if ($k === 'hash') {
+                    $errors[] = '- script has changed';
+                } elseif ($k === 'entry_point') {
+                    // Changes to the entry point can only happen for jury submissions during initial problem upload.
+                    // Silently ignore.
+                } else {
+                    $errors[] = '- ' . preg_replace('/_/', ' ', $k) . ': '
+                        . $this->dj->jsonEncode($observedConfig[$k]) . ' → ' . $this->dj->jsonEncode($expectedConfig[$k]);
+                }
+            }
+        }
+        if (!empty($errors)) {
+            $allErrors[] = $type . ' changes:';
+            array_push($allErrors, ...$errors);
+        }
     }
 }

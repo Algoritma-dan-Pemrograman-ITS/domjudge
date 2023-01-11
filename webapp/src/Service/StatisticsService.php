@@ -178,7 +178,6 @@ class StatisticsService
                     $s->getProblem()->getProbId());
                 $misc['problem_stats']['teams_attempted'][$s->getProblem()->getProbId()][$team->getTeamId()] = $team->getTeamId();
 
-
                 static::setOrIncrement($misc['language_stats']['total_submissions'],
                     $s->getLanguage()->getLangid());
                 $misc['language_stats']['teams_attempted'][$s->getLanguage()->getLangid()][$team->getTeamId()] = $team->getTeamId();
@@ -313,7 +312,6 @@ class StatisticsService
             return ($a->getJudgingid() < $b->getJudgingid()) ? -1 : 1;
         });
 
-
         $misc = [];
         $misc['correct_percentage'] = array_key_exists('correct',
             $results) ? ($results['correct'] / count($judgings)) * 100.0 : 0;
@@ -384,7 +382,6 @@ class StatisticsService
             return ($a->getSubmitTime() < $b->getSubmitTime()) ? -1 : 1;
         });
 
-
         $misc = [];
         $teamsCorrect = [];
         $teamsAttempted = [];
@@ -420,7 +417,7 @@ class StatisticsService
     public function getGroupedProblemsStats(
         Contest $contest,
         array $problems,
-        bool $showFrozen,
+        bool $showVerdictsInFreeze,
         bool $verificationRequired
     ): array {
         $stats = [
@@ -465,7 +462,7 @@ class StatisticsService
                 $queryBuilder = clone $judgingsQueryBuilder;
                 $queryBuilder->andWhere('s.submittime >= :starttime');
                 $queryBuilder->andWhere('s.submittime < :endtime');
-                if ($showFrozen || $end->getTimestamp() <= $contest->getFreezetime()) {
+                if ($showVerdictsInFreeze || $end->getTimestamp() <= $contest->getFreezetime()) {
                     // When we don't want to show frozen correct/incorrect submissions,
                     // get the same data for both correct and incorrect.
                     // This logic assumes the freeze matches with the start of a bucket.

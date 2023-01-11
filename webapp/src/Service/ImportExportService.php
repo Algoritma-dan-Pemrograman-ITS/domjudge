@@ -5,7 +5,6 @@ namespace App\Service;
 use App\Entity\Configuration;
 use App\Entity\Contest;
 use App\Entity\ContestProblem;
-use App\Entity\Language;
 use App\Entity\Problem;
 use App\Entity\Role;
 use App\Entity\Team;
@@ -59,7 +58,7 @@ class ImportExportService
      */
     public function getContestYamlData(Contest $contest): array
     {
-        // TODO: It seems we dump contest.yaml and system.yaml and problemset.yaml in one here?
+        // We expect contest.yaml and problemset.yaml combined into one file here.
 
         $data = [
             'name' => $contest->getName(),
@@ -67,6 +66,9 @@ class ImportExportService
             'start-time' => Utils::absTime($contest->getStarttime(), true),
             'duration' => Utils::relTime($contest->getContestTime((float)$contest->getEndtime())),
         ];
+        if ($warnMsg = $contest->getWarningMessage()) {
+            $data['warning-message'] = $warnMsg;
+        }
         if ($contest->getFreezetime() !== null) {
             $data['scoreboard-freeze-duration'] = Utils::relTime(
                 $contest->getContestTime((float)$contest->getEndtime()) - $contest->getContestTime((float)$contest->getFreezetime()),
@@ -74,20 +76,8 @@ class ImportExportService
         }
         $data = array_merge($data, [
             'penalty-time' => $this->config->get('penalty_time'),
-            'default-clars' => $this->config->get('clar_answers'),
-            'clar-categories' => array_values($this->config->get('clar_categories')),
-            'languages' => [],
             'problems' => [],
         ]);
-
-        /** @var Language[] $languages */
-        $languages = $this->em->getRepository(Language::class)->findAll();
-        foreach ($languages as $language) {
-            // TODO: compiler, -flags, runner, -flags?
-            $data['languages'][] = [
-                'name' => $language->getName(),
-            ];
-        }
 
         /** @var ContestProblem $contestProblem */
         foreach ($contest->getProblems() as $contestProblem) {
@@ -157,6 +147,10 @@ class ImportExportService
         }
 
         $starttime->setTimezone(new DateTimeZone(date_default_timezone_get()));
+        $activateTime = new DateTime();
+        if ($activateTime > $starttime) {
+            $activateTime = $starttime;
+        }
         $contest = new Contest();
         $contest
             ->setName($data['name'])
@@ -166,8 +160,9 @@ class ImportExportService
                                $data['shortname'] ?? $data['short-name'] ?? $data['id']
                            ))
             ->setExternalid($contest->getShortname())
+            ->setWarningMessage($data['warning-message'] ?? null)
             ->setStarttimeString(date_format($starttime, 'Y-m-d H:i:s e'))
-            ->setActivatetimeString('-24:00')
+            ->setActivatetimeString(date_format($activateTime, 'Y-m-d H:i:s e'))
             ->setEndtimeString(sprintf('+%s', $data['duration']));
 
         // Get all visible categories. For now, we assume these are the ones getting awards
@@ -227,47 +222,6 @@ class ImportExportService
             }
         }
 
-        if (isset($data['default-clars'])) {
-            $currentClarificationAnswersConfiguration = $this->config->get('clar_answers');
-            if ($currentClarificationAnswersConfiguration != $data['default-clars']) {
-                $clarificationAnswersConfiguration = $this->em->getRepository(Configuration::class)->findOneBy(['name' => 'clar_answers']);
-                if (!$clarificationAnswersConfiguration) {
-                    $clarificationAnswersConfiguration = new Configuration();
-                    $clarificationAnswersConfiguration->setName('clar_answers');
-                    $this->em->persist($clarificationAnswersConfiguration);
-                }
-                $clarificationAnswersConfiguration->setValue($data['default-clars']);
-            }
-        }
-
-        if (is_array($data['clar-categories'] ?? null)) {
-            $currentClarificationCategoriesConfiguration = $this->config->get('clar_categories');
-            if ($currentClarificationCategoriesConfiguration != $data['clar-categories']) {
-                $clarificationCategoriesConfiguration = $this->em->getRepository(Configuration::class)->findOneBy(['name' => 'clar_categories']);
-                if (!$clarificationCategoriesConfiguration) {
-                    $clarificationCategoriesConfiguration = new Configuration();
-                    $clarificationCategoriesConfiguration->setName('clar_categories');
-                    $this->em->persist($clarificationCategoriesConfiguration);
-                }
-                $categories                           = [];
-                foreach ($data['clar-categories'] as $category) {
-                    $categoryKey              = substr(
-                        str_replace(
-                            [' ', ',', '.'],
-                            '-',
-                            strtolower($category)
-                        ),
-                        0,
-                        9
-                    );
-                    $categories[$categoryKey] = $category;
-                }
-                $clarificationCategoriesConfiguration->setValue($categories);
-            }
-        }
-
-        // We do not import language details, as there's very little to actually import.
-
         if (isset($data['problems'])) {
             $this->importProblemsData($contest, $data['problems']);
         }
@@ -280,9 +234,14 @@ class ImportExportService
 
     public function importProblemsData(Contest $contest, $problems, array &$ids = null): bool
     {
+        // For problemset.yaml the root key is called `problems`, so handle that case
+        if (isset($problems['problems'])) {
+            $problems = $problems['problems'];
+        }
+
         foreach ($problems as $problemData) {
-            // Deal with obsolete attribute names:
-            $problemName  = $problemData['name'] ?? $problemData['short-name'] ?? null;
+            // Deal with obsolete attribute names. Also for name fall back to ID if it is not specified.
+            $problemName  = $problemData['name'] ?? $problemData['short-name'] ?? $problemData['id'] ?? null;
             $problemLabel = $problemData['label'] ?? $problemData['letter'] ?? null;
 
             $problem = new Problem();
@@ -351,7 +310,7 @@ class ImportExportService
         foreach ($teams as $team) {
             $data[] = [
                 $team->getApiId($this->eventLogService),
-                $team->getIcpcid(),
+                $team->getIcpcId(),
                 $team->getCategory()->getApiId($this->eventLogService),
                 $team->getEffectiveName(),
                 $team->getAffiliation() ? $team->getAffiliation()->getName() : '',
@@ -371,7 +330,7 @@ class ImportExportService
     {
         // We'll here assume that the requested file will be of the current contest,
         // as all our scoreboard interfaces do:
-        // 1    External ID     24314   string
+        // 1    ICPC ID     24314   string
         // 2    Rank in contest     1   integer
         // 3    Award   Gold Medal  string
         // 4    Number of problems the team has solved  4   integer
@@ -464,7 +423,7 @@ class ImportExportService
             }
 
             $data[] = [
-                $teamScore->team->getApiId($this->eventLogService),
+                $teamScore->team->getIcpcId(),
                 $rank,
                 $awardString,
                 $teamScore->numPoints,
@@ -627,7 +586,8 @@ class ImportExportService
     protected function importGroupData(array $groupData, ?array &$saved = null): int
     {
         // We want to overwrite the ID so change the ID generator.
-        $metadata = $this->em->getClassMetaData(TeamCategory::class);
+        $createdCategories = [];
+        $updatedCategories = [];
 
         foreach ($groupData as $groupItem) {
             if (empty($groupItem['categoryid'])) {
@@ -638,15 +598,14 @@ class ImportExportService
                 $field = $this->eventLogService->apiIdFieldForEntity(TeamCategory::class);
                 $teamCategory = $this->em->getRepository(TeamCategory::class)->findOneBy([$field => $categoryId]);
             }
+            $added = false;
             if (!$teamCategory) {
                 $teamCategory = new TeamCategory();
                 if ($categoryId !== null) {
                     $teamCategory->setExternalid($categoryId);
                 }
                 $this->em->persist($teamCategory);
-                $action = EventLogService::ACTION_CREATE;
-            } else {
-                $action = EventLogService::ACTION_UPDATE;
+                $added = true;
             }
             $teamCategory
                 ->setName($groupItem['name'])
@@ -655,14 +614,24 @@ class ImportExportService
                 ->setColor($groupItem['color'] ?? null)
                 ->setIcpcid($groupItem['icpc_id'] ?? null);
             $this->em->flush();
-            if ($contest = $this->dj->getCurrentContest()) {
-                $this->eventLogService->log('team_category', $teamCategory->getCategoryid(), $action,
-                                            $contest->getCid());
-            }
             $this->dj->auditlog('team_category', $teamCategory->getCategoryid(), 'replaced',
                                              'imported from tsv / json');
+            if ($added) {
+                $createdCategories[] = $teamCategory->getCategoryid();
+            } else {
+                $updatedCategories[] = $teamCategory->getCategoryid();
+            }
             if ($saved !== null) {
                 $saved[] = $teamCategory;
+            }
+        }
+
+        if ($contest = $this->dj->getCurrentContest()) {
+            if (!empty($createdCategories)) {
+                $this->eventLogService->log('team_category', $createdCategories, 'create', $contest->getCid(), null, null, false);
+            }
+            if (!empty($updatedCategories)) {
+                $this->eventLogService->log('team_category', $updatedCategories, 'update', $contest->getCid(), null, null, false);
             }
         }
 
@@ -680,8 +649,8 @@ class ImportExportService
         foreach ($data as $idx => $organization) {
             $organizationData[] = [
                 'externalid' => @$organization['id'],
-                'shortname' => @$organization['name'],
-                'name' => @$organization['formal_name'],
+                'shortname' => @$organization['shortname'] ?? @$organization['name'],
+                'name' => @$organization['formal_name'] ?? @$organization['name'],
                 'country' => @$organization['country'],
                 'icpc_id' => $organization['icpc_id'] ?? null,
             ];
@@ -699,9 +668,12 @@ class ImportExportService
      */
     protected function importOrganizationData(array $organizationData, ?array &$saved = null): int
     {
+        $createdOrganizations = [];
+        $updatedOrganizations = [];
         foreach ($organizationData as $organizationItem) {
             $externalId      = $organizationItem['externalid'];
             $teamAffiliation = null;
+            $added           = false;
             if ($externalId !== null) {
                 $teamAffiliation = $this->em->getRepository(TeamAffiliation::class)->findOneBy(['externalid' => $externalId]);
             }
@@ -709,9 +681,10 @@ class ImportExportService
                 $teamAffiliation = new TeamAffiliation();
                 $teamAffiliation->setExternalid($externalId);
                 $this->em->persist($teamAffiliation);
-                $action = EventLogService::ACTION_CREATE;
-            } else {
-                $action = EventLogService::ACTION_UPDATE;
+                $added = true;
+            }
+            if (!isset($organizationItem['shortname'])) {
+                throw new BadRequestHttpException('Shortname missing.');
             }
             $teamAffiliation
                 ->setShortname($organizationItem['shortname'])
@@ -719,14 +692,24 @@ class ImportExportService
                 ->setCountry($organizationItem['country'])
                 ->setIcpcid($organizationItem['icpc_id'] ?? null);
             $this->em->flush();
-            if ($contest = $this->dj->getCurrentContest()) {
-                $this->eventLogService->log('team_affiliation', $teamAffiliation->getAffilid(), $action,
-                                            $contest->getCid());
+            if ($added) {
+                $createdOrganizations[] = $teamAffiliation->getAffilid();
+            } else {
+                $updatedOrganizations[] = $teamAffiliation->getAffilid();
             }
             $this->dj->auditlog('team_affiliation', $teamAffiliation->getAffilid(), 'replaced',
                                              'imported from tsv / json');
             if ($saved !== null) {
                 $saved[] = $teamAffiliation;
+            }
+        }
+
+        if ($contest = $this->dj->getCurrentContest()) {
+            if (!empty($createdOrganizations)) {
+                $this->eventLogService->log('team_affiliation', $createdOrganizations, 'create', $contest->getCid(), null, null, false);
+            }
+            if (!empty($updatedOrganizations)) {
+                $this->eventLogService->log('team_affiliation', $updatedOrganizations, 'update', $contest->getCid(), null, null, false);
             }
         }
 
@@ -1001,10 +984,10 @@ class ImportExportService
                                             'create', $contest->getCid());
             }
             if (!empty($createdTeams)) {
-                $this->eventLogService->log('team', $createdTeams, 'create', $contest->getCid());
+                $this->eventLogService->log('team', $createdTeams, 'create', $contest->getCid(), null, null, false);
             }
             if (!empty($updatedTeams)) {
-                $this->eventLogService->log('team', $updatedTeams, 'update', $contest->getCid());
+                $this->eventLogService->log('team', $updatedTeams, 'update', $contest->getCid(), null, null, false);
             }
         }
 
@@ -1020,8 +1003,6 @@ class ImportExportService
      */
     protected function importAccountData(array $accountData, ?array &$saved = null): int
     {
-        $createdUsers = [];
-        $updatedUsers = [];
         $newTeams     = [];
         foreach ($accountData as $accountItem) {
             if (!empty($accountItem['team'])) {
@@ -1089,11 +1070,6 @@ class ImportExportService
                 $this->em->persist($user);
             }
             $this->em->flush();
-            if ($added) {
-                $createdUsers[] = $user->getUserid();
-            } else {
-                $updatedUsers[] = $user->getUserid();
-            }
 
             if ($saved !== null) {
                 $saved[] = $user;
@@ -1107,13 +1083,6 @@ class ImportExportService
                 $team = $newTeam['team'];
                 $action = $newTeam['action'];
                 $this->eventLogService->log('team', $team->getTeamid(), $action, $contest->getCid());
-            }
-
-            if (!empty($createdUsers)) {
-                $this->eventLogService->log('user', $createdUsers, 'create', $contest->getCid());
-            }
-            if (!empty($updatedUsers)) {
-                $this->eventLogService->log('user', $updatedUsers, 'update', $contest->getCid());
             }
         }
 

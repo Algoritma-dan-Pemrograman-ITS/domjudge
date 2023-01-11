@@ -251,7 +251,7 @@ class Problem extends BaseApiEntity
         return $this->outputlimit;
     }
 
-    public function setSpecialCompareArgs(string $specialCompareArgs): Problem
+    public function setSpecialCompareArgs(?string $specialCompareArgs): Problem
     {
         $this->special_compare_args = $specialCompareArgs;
         return $this;
@@ -532,7 +532,7 @@ class Problem extends BaseApiEntity
         $response->setCallback(function () use ($problemText) {
             echo $problemText;
         });
-        $response->headers->set('Content-Type', sprintf('%s; name="%s', $mimetype, $filename));
+        $response->headers->set('Content-Type', sprintf('%s; name="%s"', $mimetype, $filename));
         $response->headers->set('Content-Disposition', sprintf('inline; filename="%s"', $filename));
         $response->headers->set('Content-Length', strlen($problemText));
 

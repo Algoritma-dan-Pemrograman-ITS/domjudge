@@ -27,9 +27,10 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
  * @Rest\Route("/contests/{cid}/organizations")
  * @OA\Tag(name="Organizations")
  * @OA\Parameter(ref="#/components/parameters/cid")
- * @OA\Response(response="404", ref="#/components/responses/NotFound")
- * @OA\Response(response="401", ref="#/components/responses/Unauthorized")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
+ * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
+ * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
+ * @OA\Response(response="404", ref="#/components/responses/NotFound")
  */
 class OrganizationController extends AbstractRestController
 {
@@ -41,8 +42,7 @@ class OrganizationController extends AbstractRestController
         ConfigurationService $config,
         EventLogService $eventLogService,
         AssetUpdateService $assetUpdater
-    )
-    {
+    ) {
         parent::__construct($entityManager, $dj, $config, $eventLogService);
         $this->assetUpdater = $assetUpdater;
     }
@@ -127,11 +127,11 @@ class OrganizationController extends AbstractRestController
 
         $affiliationLogo = $this->dj->assetPath($id, 'affiliation', true);
 
-        if (!file_exists($affiliationLogo)) {
-            throw new NotFoundHttpException('Affiliation logo not found');
+        if ($affiliationLogo && file_exists($affiliationLogo)) {
+            return static::sendBinaryFileResponse($request, $affiliationLogo);
         }
 
-        return static::sendBinaryFileResponse($request, $affiliationLogo);
+        throw new NotFoundHttpException('Affiliation logo not found');
     }
 
     /**
