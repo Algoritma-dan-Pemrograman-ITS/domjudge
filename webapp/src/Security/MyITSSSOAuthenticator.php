@@ -80,7 +80,10 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
             }
             $oidc->authenticate(); //call the main function of myITS SSO login
     
-            $_SESSION['id_token'] = $oidc->getIdToken(); // must be save for check session dan logout proccess
+            // must be save for check session dan logout proccess
+            $session = $request->getSession();
+            $session->set('oidc.id_token', $oidc->getIdToken());
+            $session->save();
             $userSso = $oidc->requestUserInfo(); // this will return user information from myITS SSO database
     
             $em = $this->em;
@@ -118,7 +121,7 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
     
             return new SelfValidatingPassport(new UserBadge($user->getUsername()));
         } catch (OpenIDConnectClientException $e) {
-            throw new CustomUserMessageAuthenticationException('Unable to get information from myITS SSO');
+            throw new CustomUserMessageAuthenticationException($e->getMessage());
         }
     }
 

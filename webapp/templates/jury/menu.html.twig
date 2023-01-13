@@ -119,7 +119,7 @@
                             </a>
                         {% endif %}
 
-                        <a class="dropdown-item" href="{{ path('logout') }}"><i class="fas fa-sign-out-alt fa-fw"></i>Logout </a>
+                        <a class="dropdown-item" href="{{ path('logout', app.session.has('oidc.id_token') ? {id_token_hint: app.session.get('oidc.id_token')} : {}) }}"><i class="fas fa-sign-out-alt fa-fw"></i>Logout </a>
                     </div>
                 </li>
             {% else %}
