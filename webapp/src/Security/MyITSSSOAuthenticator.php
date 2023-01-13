@@ -91,24 +91,30 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
             $nrp = $userSso->reg_id;
             /** @var ?User $user */
             $user = $em->getRepository(User::class)->findOneBy(['externalid' => $nrp]);
-            $picture = file_get_contents($userSso->picture);
-            $jpegType = !empty(array_filter($http_response_header, function($header) {
-                return $header == 'Content-Type: image/jpeg';
-            }));
-            $pngType = !empty(array_filter($http_response_header, function($header) {
-                return $header == 'Content-Type: image/png';
-            }));
+            try {
+                if (gettype($userSso->picture) !== 'string' || empty($userSso->picture))
+                    throw new \Exception('no_picture');
+                $picture = file_get_contents($userSso->picture);
+                $jpegType = !empty(array_filter($http_response_header, function($header) {
+                    return $header == 'Content-Type: image/jpeg';
+                }));
+                $pngType = !empty(array_filter($http_response_header, function($header) {
+                    return $header == 'Content-Type: image/png';
+                }));
 
-            $teamId = $nrp;
-            if ($teamId && ($jpegType || $pngType)) {
-                $path = $this->dj->assetPath(sprintf("%s.png", $teamId), 'team', true);
-                if ($path) unlink($path);
-                $path = $this->dj->assetPath(sprintf("%s.jpg", $teamId), 'team', true);
-                if ($path) unlink($path);
-                $path = sprintf("%s/public/images/teams/%s.%s", $this->dj->getDomjudgeWebappDir(), $teamId, ($pngType ? 'png' : 'jpg'));
-                if ($path) {
-                    file_put_contents($path, $picture);
+                $teamId = $nrp;
+                if ($teamId && ($jpegType || $pngType)) {
+                    $path = $this->dj->assetPath(sprintf("%s.png", $teamId), 'team', true);
+                    if ($path) unlink($path);
+                    $path = $this->dj->assetPath(sprintf("%s.jpg", $teamId), 'team', true);
+                    if ($path) unlink($path);
+                    $path = sprintf("%s/public/images/teams/%s.%s", $this->dj->getDomjudgeWebappDir(), $teamId, ($pngType ? 'png' : 'jpg'));
+                    if ($path) {
+                        file_put_contents($path, $picture);
+                    }
                 }
+            } catch(\Exception $e) {
+                
             }
     
             if (!$user) {
