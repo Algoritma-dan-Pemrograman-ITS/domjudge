@@ -80,7 +80,7 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
             }
             $oidc->authenticate(); //call the main function of myITS SSO login
     
-            // must be save for check session dan logout proccess
+            // must be save for check session dan logout process
             $session = $request->getSession();
             $session->set('oidc.id_token', $oidc->getIdToken());
             $session->save();
