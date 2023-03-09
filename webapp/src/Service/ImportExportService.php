@@ -99,7 +99,7 @@ class ImportExportService
 
     public function importContestData($data, ?string &$message = null, string &$cid = null): bool
     {
-        if (empty($data)) {
+        if (empty($data) || !is_array($data)) {
             $message = 'Error parsing YAML file.';
             return false;
         }
@@ -767,7 +767,7 @@ class ImportExportService
                 ]
             ];
         }
-        return $this->importTeamData($teamData);
+        return $this->importTeamData($teamData, $message);
     }
 
     /**
@@ -787,6 +787,7 @@ class ImportExportService
                     'name' => @$team['name'],
                     'display_name' => @$team['display_name'],
                     'publicdescription' => @$team['members'],
+                    'room' => @$team['room'],
                 ],
                 'team_affiliation' => [
                     'externalid' => $team['organization_id'] ?? null,
@@ -794,7 +795,7 @@ class ImportExportService
             ];
         }
 
-        return $this->importTeamData($teamData, $saved);
+        return $this->importTeamData($teamData, $message, $saved);
     }
 
     /**
@@ -878,7 +879,7 @@ class ImportExportService
      *
      * @throws NonUniqueResultException
      */
-    protected function importTeamData(array $teamData, ?array &$saved = null): int
+    protected function importTeamData(array $teamData, ?string &$message, ?array &$saved = null): int
     {
         $createdAffiliations = [];
         $createdTeams        = [];
@@ -951,10 +952,17 @@ class ImportExportService
                 $added = false;
             }
 
-            if (!empty($teamItem['team']['teamid'])) {
-                $team->setExternalid($teamItem['team']['teamid']);
-                unset($teamItem['team']['teamid']);
+            if (empty($teamItem['team']['teamid'])) {
+                $message = 'ID for team required';
+                return -1;
             }
+
+            if (preg_match('/^([a-zA-Z0-9]{1}([a-zA-Z0-9._-]{0,34}[a-zA-Z0-9])?)$/', $teamItem['team']['teamid']) === 0) {
+                $message = 'ID not in CLICS format';
+                return -1;
+            }
+            $team->setExternalid($teamItem['team']['teamid']);
+            unset($teamItem['team']['teamid']);
 
             $propertyAccessor = PropertyAccess::createPropertyAccessor();
             foreach ($teamItem['team'] as $field => $value) {

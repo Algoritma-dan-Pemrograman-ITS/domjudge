@@ -6,6 +6,7 @@
 {% block extrahead %}
     {{ parent() }}
     {{ macros.table_extrahead() }}
+    {{ macros.toggle_extrahead() }}
 {% endblock %}
 
 {% block content %}
@@ -49,10 +50,6 @@
                 <tr>
                     <th>Short name</th>
                     <td>{{ contest.shortname }}</td>
-                </tr>
-                <tr>
-                    <th>Name</th>
-                    <td>{{ contest.name }}</td>
                 </tr>
                 <tr>
                     <th>Activate time</th>
@@ -110,10 +107,9 @@
                 <tr>
                     <th>Allow submit</th>
                     <td>
-                        {{ contest.allowSubmit | printYesNo }}
                         <form action="{{ path('jury_contest_toggle_submit', {'contestId': contest.cid}) }}" method="post" class="d-inline">
-                            <input type="hidden" name="allow_submit" value="{{ not contest.allowSubmit }}" />
-                            <input type="submit" class="btn btn-sm btn-outline-secondary" value="toggle"/>
+                            <input type="checkbox" data-toggle="toggle" data-size="mini" data-on="Yes" data-off="No"
+                                   name="allow_submit" {% if contest.allowSubmit %}checked{% endif %}>
                         </form>
                     </td>
                 </tr>
@@ -198,6 +194,18 @@
                         <a class="btn btn-sm btn-secondary" href="{{ path('public_scoreboard_data_zip', {contest: contest.cid}) }}">
                             <i class="fas fa-download"></i> Download
                         </a>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Sample data ZIP</th>
+                    <td>
+                        <a class="btn btn-sm btn-secondary" href="{{ path('jury_contest_samples_data_zip', {contestId: contest.cid}) }}">
+                            <i class="fas fa-download"></i> Download
+                        </a>
+                        <br/>
+                        <small class="text-muted">
+                            Contains samples, attachments and statement for all problems.
+                        </small>
                     </td>
                 </tr>
                 {% set contestId = contest.cid %}
@@ -416,3 +424,8 @@
     </div>
 
 {% endblock %}
+
+{% block extrafooter %}
+    {{ macros.toggle_autosubmit_extrafooter() }}
+{% endblock %}
+

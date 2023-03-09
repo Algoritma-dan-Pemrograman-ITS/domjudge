@@ -25,7 +25,11 @@ from Git repository sources, because you want to use the bleeding edge
 code or consider to send a patch to the developers, the
 configure/build system first has to be bootstrapped.
 
-This requires the GNU autoconf/automake toolset to be installed,
+You can either spin up a development `Docker container`_ or install locally.
+
+.. _Docker container: https://hub.docker.com/r/domjudge/domjudge-contributor
+
+The local install requires the GNU autoconf/automake toolset to be installed,
 and various tools to build the documentation.
 
 On Debian(-based) systems, the following apt command should
@@ -41,7 +45,8 @@ already listed under
 On Debian 11 (Bullseye) and above, instead install::
 
   sudo apt install autoconf automake bats \
-    python3-sphinx python3-sphinx-rtd-theme rst2pdf fontconfig python3-yaml latexmk
+    python3-sphinx python3-sphinx-rtd-theme rst2pdf fontconfig python3-yaml \
+    latexmk texlive-latex-recommended texlive-latex-extra tex-gyre
 
 When this software is present, bootstrapping can be done by running
 ``make dist``, which creates the ``configure`` script,
@@ -95,7 +100,7 @@ the file ``webapp/.env.local`` and add to it the setting
 maintainer-install`` when the file did not exist before.
 For more details see the `Symfony documentation`_.
 
-:: _Symfony documentation: https://symfony.com/doc/current/configuration/dot-env-changes.html
+.. _Symfony documentation: https://symfony.com/doc/current/configuration/dot-env-changes.html
 
 The ``webapp/.env.local`` file can also be used to overwrite the database
 version. This is needed to automatically generate migrations based on the

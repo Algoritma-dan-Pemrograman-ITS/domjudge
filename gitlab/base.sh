@@ -6,7 +6,7 @@ lsb_release -a
 
 cat > ~/.my.cnf <<EOF
 [client]
-host=${MARIADB_PORT_3306_TCP_ADDR}
+host=sqlserver
 user=root
 password=${MYSQL_ROOT_PASSWORD}
 EOF
@@ -26,7 +26,7 @@ if [ -n "${MYSQL_REQUIRE_PRIMARY_KEY:-}" ]; then
 fi
 
 # Generate a dbpasswords file
-echo "unused:${MARIADB_PORT_3306_TCP_ADDR}:domjudge:domjudge:domjudge:3306" > etc/dbpasswords.secret
+echo "unused:sqlserver:domjudge:domjudge:domjudge:3306" > etc/dbpasswords.secret
 
 # Generate APP_SECRET for symfony
 # shellcheck disable=SC2164
@@ -76,7 +76,7 @@ php_version="${version:-}"
 sudo cp /opt/domjudge/domserver/etc/domjudge-fpm.conf "/etc/php/$php_version/fpm/pool.d/domjudge-fpm.conf"
 echo "php_admin_value[date.timezone] = Europe/Amsterdam" | sudo tee -a "/etc/php/$php_version/fpm/pool.d/domjudge-fpm.conf"
 sudo /usr/sbin/php-fpm${php_version}
-
+echo "date.timezone = Europe/Amsterdam" | sudo tee -a "/etc/php/$php_version/cli/php.ini"
 
 passwd=$(cat etc/initial_admin_password.secret)
 echo "machine localhost login admin password $passwd" >> ~www-data/.netrc

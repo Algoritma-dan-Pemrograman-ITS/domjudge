@@ -375,17 +375,21 @@ for different programming languages.
    :language: c
    :caption: *A solution in C*
 
+.. raw:: latex
+
+   \clearpage
+
 .. literalinclude:: ../examples/example.cc
    :language: cpp
    :caption: *A solution in C++*
 
-.. raw:: pdf
-
-   PageBreak
-
 .. literalinclude:: ../examples/example.java
    :language: java
    :caption: *A solution in Java*
+
+.. literalinclude:: ../examples/example.kt
+   :language: kotlin
+   :caption: *A solution in Kotlin*
 
 .. literalinclude:: ../examples/example.py
    :language: python
@@ -399,10 +403,13 @@ for different programming languages.
    :language: pas
    :caption: *A solution in Pascal*
 
-.. raw:: pdf
-
-   PageBreak
-
 .. literalinclude:: ../examples/example.hs
    :language: hs
    :caption: *A solution in Haskell*
+
+Improvements to DOMjudge
+------------------------
+
+The DOMjudge team would like your feedback. We do not receive much feedback from participants.
+If you find something lacking or have improvement ideas, please report them. See https://www.domjudge.org/development.
+

@@ -121,10 +121,12 @@ class UserController extends AbstractRestController
      */
     public function addOrganizationsAction(Request $request): string
     {
-        /** @var UploadedFile $jsonFile */
-        $jsonFile = $request->files->get('json') ?: [];
         $message = null;
-        if ($result = $this->importExportService->importJson('organizations', $jsonFile, $message) && $result >= 0) {
+        /** @var UploadedFile $jsonFile */
+        if (($jsonFile = $request->files->get('json')) &&
+            ($result = $this->importExportService->importJson('organizations', $jsonFile, $message)) &&
+            $result >= 0
+        ) {
             // TODO: better return all organizations here
             return "$result new organization(s) successfully added.";
         } else {
@@ -358,7 +360,7 @@ class UserController extends AbstractRestController
             $user->setTeam($team);
         }
 
-        $roles = (array)$request->request->get('roles');
+        $roles = $request->request->all('roles');
         foreach ($roles as $djRole) {
             if ($djRole === '') {
                 continue;

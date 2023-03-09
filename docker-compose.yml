@@ -1,3 +1,7 @@
+# Note: this docker compose stack should only be used for development purposes.
+# Do not use it for production deployments. If you want to deploy DOMjudge in
+# production with Docker, see https://hub.docker.com/r/domjudge/domserver.
+
 version: '3'
 
 services:
@@ -9,7 +13,8 @@ services:
       - MYSQL_PASSWORD=domjudge
       - MYSQL_DATABASE=domjudge
     ports:
-      - 13306:3306
+      # Useful to connect a local MySQL client / GUI
+      - 127.0.0.1:13306:3306
     command: --max-connections=1000 --max-allowed-packet=512M
     volumes:
       - /var/lib/mysql
@@ -19,6 +24,7 @@ services:
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - .:/domjudge:cached
+      - /chroot
     links:
       - mariadb:mariadb
     ports:

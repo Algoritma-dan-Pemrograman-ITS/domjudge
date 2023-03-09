@@ -23,6 +23,7 @@ use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
  * @Rest\Route("/contests/{cid}/clarifications")
  * @OA\Tag(name="Clarifications")
  * @OA\Parameter(ref="#/components/parameters/cid")
+ * @OA\Parameter(ref="#/components/parameters/strict")
  * @OA\Response(response="400", ref="#/components/responses/InvalidResponse")
  * @OA\Response(response="401", ref="#/components/responses/Unauthenticated")
  * @OA\Response(response="403", ref="#/components/responses/Unauthorized")
@@ -44,7 +45,6 @@ class ClarificationController extends AbstractRestController
      *     )
      * )
      * @OA\Parameter(ref="#/components/parameters/idlist")
-     * @OA\Parameter(ref="#/components/parameters/strict")
      * @OA\Parameter(
      *     name="problem",
      *     in="query",
@@ -72,7 +72,6 @@ class ClarificationController extends AbstractRestController
      *     @Model(type=Clarification::class)
      * )
      * @OA\Parameter(ref="#/components/parameters/id")
-     * @OA\Parameter(ref="#/components/parameters/strict")
      */
     public function singleAction(Request $request, string $id): Response
     {
@@ -159,8 +158,7 @@ class ClarificationController extends AbstractRestController
                 ->getOneOrNullResult();
 
             if ($replyTo === null) {
-                throw new BadRequestHttpException(
-                    sprintf("Clarification '%s' not found.", $replyToId));
+                throw new BadRequestHttpException("Clarification '$replyToId' not found.");
             }
 
             $clarification->setInReplyTo($replyTo);

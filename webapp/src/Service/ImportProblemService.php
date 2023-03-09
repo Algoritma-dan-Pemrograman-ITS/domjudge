@@ -552,11 +552,7 @@ class ImportProblemService
             }
 
             // Check if an attachment already exists, since then we overwrite it.
-            if (isset($existingAttachments[$name])) {
-                $attachment = $existingAttachments[$name];
-            } else {
-                $attachment = null;
-            }
+            $attachment = $existingAttachments[$name] ?? null;
 
             if ($attachment) {
                 $attachmentContent = $attachment->getContent();
@@ -873,7 +869,7 @@ class ImportProblemService
                 $errors = array_merge($errors, $messages);
             }
         } catch (Exception $e) {
-            $allMessages[] = $e->getMessage();
+            $errors[] = $e->getMessage();
         } finally {
             if ($zip) {
                 $zip->close();

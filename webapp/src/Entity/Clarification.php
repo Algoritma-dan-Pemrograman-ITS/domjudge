@@ -47,6 +47,7 @@ class Clarification extends BaseApiEntity implements ExternalRelationshipEntityI
      *     options={"comment"="Clarification ID in an external system, should be unique inside a single contest",
      *              "collation"="utf8mb4_bin"},
      *     nullable=true)
+     * @Serializer\Groups({"Nonstrict"})
      * @OA\Property(nullable=true)
      */
     protected ?string $externalid = null;
@@ -183,6 +184,7 @@ class Clarification extends BaseApiEntity implements ExternalRelationshipEntityI
      * @Serializer\VirtualProperty()
      * @Serializer\SerializedName("time")
      * @Serializer\Type("string")
+     * @OA\Property(nullable=true)
      */
     public function getAbsoluteSubmitTime(): string
     {

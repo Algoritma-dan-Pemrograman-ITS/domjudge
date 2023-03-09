@@ -38,6 +38,7 @@ use Doctrine\ORM\QueryBuilder;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\InputBag;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
@@ -52,6 +53,7 @@ use Symfony\Component\Routing\RouterInterface;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
+use Symfony\Component\Security\Core\User\UserInterface;
 use ZipArchive;
 
 class DOMJudgeService
@@ -302,7 +304,7 @@ class DOMJudgeService
         $internal_errors               = [];
         $balloons                      = [];
         $shadow_difference_count       = 0;
-        $external_contest_sources      = [];
+        $down_external_contest_source  = null;
         $external_source_warning_count = [];
 
         if ($this->checkRole('jury')) {
@@ -366,19 +368,21 @@ class DOMJudgeService
                         ->getSingleScalarResult();
                 }
 
-                $external_contest_sources = $this->em->createQueryBuilder()
+                $down_external_contest_source = $this->em->createQueryBuilder()
                     ->select('ecs.extsourceid', 'ecs.lastPollTime')
                     ->from(ExternalContestSource::class, 'ecs')
-                    ->andWhere('ecs.enabled = true')
+                    ->andWhere('ecs.contest = :contest')
                     ->andWhere('ecs.lastPollTime < :i OR ecs.lastPollTime is NULL')
+                    ->setParameter('contest', $this->getCurrentContest())
                     ->setParameter('i', time() - $this->config->get('external_contest_source_critical'))
-                    ->getQuery()->getResult();
+                    ->getQuery()->getOneOrNullResult();
 
                 $external_source_warning_count = $this->em->createQueryBuilder()
                                                      ->select('COUNT(w.extwarningid)')
                                                      ->from(ExternalSourceWarning::class, 'w')
                                                      ->innerJoin('w.externalContestSource', 'ecs')
-                                                     ->andWhere('ecs.enabled = true')
+                                                     ->andWhere('ecs.contest = :contest')
+                                                     ->setParameter('contest', $this->getCurrentContest())
                                                      ->getQuery()
                                                      ->getSingleScalarResult();
             }
@@ -414,7 +418,7 @@ class DOMJudgeService
             'internal_errors' => $internal_errors,
             'balloons' => $balloons,
             'shadow_difference_count' => $shadow_difference_count,
-            'external_contest_sources' => $external_contest_sources,
+            'external_contest_source_is_down' => $down_external_contest_source !== null,
             'external_source_warning_count' => $external_source_warning_count,
         ];
     }
@@ -429,17 +433,20 @@ class DOMJudgeService
      *
      * This will result in all calls to checkrole() to return true.
      */
-    public function withAllRoles(callable $callable): void
+    public function withAllRoles(callable $callable, ?UserInterface $user = null): void
     {
         $currentToken = $this->tokenStorage->getToken();
         // We need a 'user' to create a token. However, even if you
         // are not logged in, a (anonymous) user is returned. This
         // check is just here to make sure the code does not crash
         // in strange circumstances.
-        if ($currentToken && $currentToken->getUser()) {
+        if (!$user && $currentToken && $currentToken->getUser()) {
+            $user = $currentToken->getUser();
+        }
+        if ($user) {
             $this->tokenStorage->setToken(
                 new UsernamePasswordToken(
-                    $currentToken->getUser(),
+                    $user,
                     'main',
                     ['ROLE_ADMIN']
                 )
@@ -604,11 +611,13 @@ class DOMJudgeService
     /**
      * Perform an internal API request to the given URL with the given data.
      *
+     * @param UploadedFile[] $files
+     *
      * @return mixed|null
      */
-    public function internalApiRequest(string $url, string $method = Request::METHOD_GET, array $queryData = [])
+    public function internalApiRequest(string $url, string $method = Request::METHOD_GET, array $queryOrPostData = [], array $files = [], bool $throw = false)
     {
-        $request  = Request::create('/api' . $url, $method, $queryData);
+        $request  = Request::create('/api' . $url, $method, $queryOrPostData, [], $files);
         if ($this->requestStack->getCurrentRequest() && $this->requestStack->getCurrentRequest()->hasSession()) {
             $request->setSession($this->requestStack->getSession());
         }
@@ -616,6 +625,9 @@ class DOMJudgeService
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {
+            if ($throw) {
+                throw new HttpException($status, $response->getContent());
+            }
             $this->logger->warning(
                 "executing internal %s request to url %s: http status code: %d, response: %s",
                 [ $method, $url, $status, $response ]
@@ -723,22 +735,6 @@ class DOMJudgeService
      */
     public function getSamplesZipContent(ContestProblem $contestProblem): string
     {
-        /** @var Testcase[] $testcases */
-        $testcases = $this->em->createQueryBuilder()
-            ->from(Testcase::class, 'tc')
-            ->join('tc.problem', 'p')
-            ->join('p.contest_problems', 'cp', Join::WITH, 'cp.contest = :contest')
-            ->join('tc.content', 'tcc')
-            ->select('tc', 'tcc')
-            ->andWhere('tc.problem = :problem')
-            ->andWhere('tc.sample = 1')
-            ->andWhere('cp.allowSubmit = 1')
-            ->setParameter('problem', $contestProblem->getProblem())
-            ->setParameter('contest', $contestProblem->getContest())
-            ->orderBy('tc.testcaseid')
-            ->getQuery()
-            ->getResult();
-
         $zip = new ZipArchive();
         if (!($tempFilename = tempnam($this->getDomjudgeTmpDir(), "export-"))) {
             throw new ServiceUnavailableHttpException(null, 'Could not create temporary file.');
@@ -749,11 +745,40 @@ class DOMJudgeService
             throw new ServiceUnavailableHttpException(null, 'Could not create temporary zip file.');
         }
 
+        $this->addSamplesToZip($zip, $contestProblem);
+
+        $zip->close();
+        $zipFileContents = file_get_contents($tempFilename);
+        unlink($tempFilename);
+        return $zipFileContents;
+    }
+
+    protected function addSamplesToZip(ZipArchive $zip, ContestProblem $problem, ?string $directory = null): void
+    {
+        /** @var Testcase[] $testcases */
+        $testcases = $this->em->createQueryBuilder()
+            ->from(Testcase::class, 'tc')
+            ->join('tc.problem', 'p')
+            ->join('p.contest_problems', 'cp', Join::WITH, 'cp.contest = :contest')
+            ->join('tc.content', 'tcc')
+            ->select('tc', 'tcc')
+            ->andWhere('tc.problem = :problem')
+            ->andWhere('tc.sample = 1')
+            ->andWhere('cp.allowSubmit = 1')
+            ->setParameter('problem', $problem->getProblem())
+            ->setParameter('contest', $problem->getContest())
+            ->orderBy('tc.testcaseid')
+            ->getQuery()
+            ->getResult();
+
         foreach ($testcases as $index => $testcase) {
             foreach (['input', 'output'] as $type) {
                 $extension = Testcase::EXTENSION_MAPPING[$type];
 
                 $filename = sprintf("%s.%s", $index + 1, $extension);
+                if ($directory) {
+                    $filename = sprintf('%s/%s', $directory, $filename);
+                }
                 $content  = null;
 
                 switch ($type) {
@@ -768,11 +793,6 @@ class DOMJudgeService
                 $zip->addFromString($filename, $content);
             }
         }
-
-        $zip->close();
-        $zipFileContents = file_get_contents($tempFilename);
-        unlink($tempFilename);
-        return $zipFileContents;
     }
 
     public function getSamplesZipStreamedResponse(ContestProblem $contestProblem): StreamedResponse
@@ -780,6 +800,55 @@ class DOMJudgeService
         $zipFileContent = $this->getSamplesZipContent($contestProblem);
         $outputFilename = sprintf('samples-%s.zip', $contestProblem->getShortname());
         return Utils::streamAsBinaryFile($zipFileContent, $outputFilename, 'zip');
+    }
+
+    public function getSamplesZipForContest(Contest $contest): StreamedResponse
+    {
+        // Note, we reload the contest with the problems and attachments, to reduce the number of queries
+        // We do not load the testcases here since addSamplesToZip loads them
+        /** @var Contest $contest */
+        $contest = $this->em->createQueryBuilder()
+            ->from(Contest::class, 'c')
+            ->innerJoin('c.problems', 'cp')
+            ->innerJoin('cp.problem', 'p')
+            ->leftJoin('p.attachments', 'a')
+            ->select('c', 'cp', 'p', 'a')
+            ->andWhere('c.cid = :cid')
+            ->setParameter('cid', $contest->getCid())
+            ->getQuery()
+            ->getSingleResult();
+
+        $zip = new ZipArchive();
+        if (!($tempFilename = tempnam($this->getDomjudgeTmpDir(), "export-"))) {
+            throw new ServiceUnavailableHttpException(null, 'Could not create temporary file.');
+        }
+
+        $res = $zip->open($tempFilename, ZipArchive::OVERWRITE);
+        if ($res !== true) {
+            throw new ServiceUnavailableHttpException(null, 'Could not create temporary zip file.');
+        }
+
+        /** @var ContestProblem $problem */
+        foreach ($contest->getProblems() as $problem) {
+            $this->addSamplesToZip($zip, $problem, $problem->getShortname());
+
+            if ($problem->getProblem()->getProblemtextType()) {
+                $filename    = sprintf('%s/statement.%s', $problem->getShortname(), $problem->getProblem()->getProblemtextType());
+                $zip->addFromString($filename, stream_get_contents($problem->getProblem()->getProblemtext()));
+            }
+
+            /** @var ProblemAttachment $attachment */
+            foreach ($problem->getProblem()->getAttachments() as $attachment) {
+                $filename = sprintf('%s/attachments/%s', $problem->getShortname(), $attachment->getName());
+                $zip->addFromString($filename, $attachment->getContent()->getContent());
+            }
+        }
+
+        $zip->close();
+        $zipFileContents = file_get_contents($tempFilename);
+        unlink($tempFilename);
+
+        return Utils::streamAsBinaryFile($zipFileContents, 'samples.zip', 'zip');
     }
 
     /**
@@ -1033,7 +1102,7 @@ class DOMJudgeService
 
         $evalOnDemand = false;
         // We have 2 cases, the problem picks the global value or the value is set.
-        if ( ((int)$problem->getLazyEvalResults() === (int)DOMJudgeService::EVAL_DEFAULT && $this->config->get('lazy_eval_results') === static::EVAL_DEMAND)
+        if (((int)$problem->getLazyEvalResults() === (int)DOMJudgeService::EVAL_DEFAULT && $this->config->get('lazy_eval_results') === static::EVAL_DEMAND)
              || $problem->getLazyEvalResults() === DOMJudgeService::EVAL_DEMAND) {
             $evalOnDemand = true;
         }
@@ -1073,9 +1142,14 @@ class DOMJudgeService
         $judgetaskDefaultParamNames = array_keys($judgetaskInsertParams);
 
         // Step 2: Create and insert the judgetasks.
+
+        $testcases = $problem->getProblem()->getTestcases();
+        if (count($testcases) < 1) {
+            throw new BadRequestHttpException("No testcases set for problem {$problem->getProbid()}");
+        }
         $judgetaskInsertParts = [];
         /** @var Testcase $testcase */
-        foreach ($problem->getProblem()->getTestcases() as $testcase) {
+        foreach ($testcases as $testcase) {
             $judgetaskInsertParts[] = sprintf(
                 '(%s, :testcase_id%d, :testcase_hash%d)',
                 implode(', ', $judgetaskDefaultParamNames),
@@ -1309,7 +1383,7 @@ class DOMJudgeService
         if ($entity instanceof Team) {
             switch ($property) {
                 case 'photo':
-                    return $this->assetPath((string)$entity->getTeamid(), 'team', true, $forceExtension);
+                    return $this->assetPath($useExternalid ? $entity->getExternalid() : (string)$entity->getTeamid(), 'team', true, $forceExtension);
             }
         } elseif ($entity instanceof TeamAffiliation) {
             switch ($property) {

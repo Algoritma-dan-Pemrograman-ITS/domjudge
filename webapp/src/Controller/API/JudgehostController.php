@@ -248,7 +248,7 @@ class JudgehostController extends AbstractFOSRestController
 
     /**
      * Update the given judging for the given judgehost.
-     * @Rest\Put("/update-judging/{hostname}/{judgetaskid}")
+     * @Rest\Put("/update-judging/{hostname}/{judgetaskid<\d+>}")
      * @IsGranted("ROLE_JUDGEHOST")
      * @OA\Response(
      *     response="200",
@@ -471,6 +471,8 @@ class JudgehostController extends AbstractFOSRestController
                     $this->dj->alert('reject', $message);
                 });
             }
+        } else {
+            throw new BadRequestHttpException('Inconsistent data, no compilation data provided.');
         }
 
         $judgehost->setPolltime(Utils::now());
@@ -479,7 +481,7 @@ class JudgehostController extends AbstractFOSRestController
 
     /**
      * Add back debug info.
-     * @Rest\Post("/add-debug-info/{hostname}/{judgeTaskId}")
+     * @Rest\Post("/add-debug-info/{hostname}/{judgeTaskId<\d+>}")
      * @IsGranted("ROLE_JUDGEHOST")
      * @OA\Response(
      *     response="200",
@@ -495,7 +497,7 @@ class JudgehostController extends AbstractFOSRestController
      *     name="judgeTaskId",
      *     in="path",
      *     description="The ID of the judgetask to add",
-     *     @OA\Schema(type="string")
+     *     @OA\Schema(type="integer")
      * )
      */
     public function addDebugInfo(
@@ -576,7 +578,7 @@ class JudgehostController extends AbstractFOSRestController
 
     /**
      * Add one JudgingRun. When relevant, finalize the judging.
-     * @Rest\Post("/add-judging-run/{hostname}/{judgeTaskId}")
+     * @Rest\Post("/add-judging-run/{hostname}/{judgeTaskId<\d+>}")
      * @IsGranted("ROLE_JUDGEHOST")
      * @OA\Response(
      *     response="200",
@@ -592,7 +594,7 @@ class JudgehostController extends AbstractFOSRestController
      *     name="judgeTaskId",
      *     in="path",
      *     description="The ID of the judgetask to add",
-     *     @OA\Schema(type="string")
+     *     @OA\Schema(type="integer")
      * )
      * @OA\RequestBody(
      *     required=true,
@@ -1186,7 +1188,7 @@ class JudgehostController extends AbstractFOSRestController
 
     /**
      * Get files for a given type and id.
-     * @Rest\Get("/get_files/{type}/{id}")
+     * @Rest\Get("/get_files/{type}/{id<\d+>}")
      * @Security("is_granted('ROLE_JURY') or is_granted('ROLE_JUDGEHOST')")
      * @throws NonUniqueResultException
      * @OA\Response(
