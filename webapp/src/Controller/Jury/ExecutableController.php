@@ -116,7 +116,7 @@ class ExecutableController extends BaseController
         return $this->render('jury/executables.html.twig', [
             'executables' => $executables_table,
             'table_fields' => $table_fields,
-            'num_actions' => $this->isGranted('ROLE_ADMIN') ? 3 : 0,
+            'num_actions' => count($execactions),
             'form' => $form->createView(),
         ]);
     }
@@ -238,6 +238,18 @@ class ExecutableController extends BaseController
                     ->setIsExecutable($editorData['executableBits'][$idx])
                     ->setFilename($filename)
                     ->setFileContent($newContent);
+                $this->em->persist($executableFile);
+                $files[] = $executableFile;
+            }
+            $offset = count($files);
+            foreach ($editorData['skippedBinary'] as $idx => $skippedBinaryData) {
+                $origExecutableFile = $this->em->getRepository(ExecutableFile::class)->find($skippedBinaryData['execfileid']);
+                $executableFile = new ExecutableFile();
+                $executableFile
+                    ->setRank($idx + $offset)
+                    ->setIsExecutable($origExecutableFile->isExecutable())
+                    ->setFilename($origExecutableFile->getFilename())
+                    ->setFileContent($origExecutableFile->getFileContent());
                 $this->em->persist($executableFile);
                 $files[] = $executableFile;
             }
@@ -436,7 +448,10 @@ class ExecutableController extends BaseController
             $content = $file->getFileContent();
             $rank = $file->getRank();
             if (!mb_detect_encoding($content, null, true)) {
-                $skippedBinary[] = $filename;
+                $skippedBinary[] = [
+                    'filename' => $filename,
+                    'execfileid' => $file->getExecFileId(),
+                ];
                 continue; // Skip binary files.
             }
             $filenames[] = $filename;
