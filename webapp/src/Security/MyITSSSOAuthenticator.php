@@ -64,14 +64,25 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
     public function authenticate(Request $request): Passport
     {
         try {
+            $openIdProvider = $this->params->get('openid.provider');
+
+            $myItsSsoPrefix = 'https://my.its.ac.id';
+            $devMyItsSsoPrefix = 'https://dev-my.its.ac.id';
+            $isMyItsSso = substr($openIdProvider, 0, strlen($myItsSsoPrefix)) === $myItsSsoPrefix;
+            $isMyItsSso = $isMyItsSso || substr($openIdProvider, 0, strlen($devMyItsSsoPrefix)) === $devMyItsSsoPrefix;
+
             $oidc = new OpenIDConnectClient(
-                $this->params->get('openid.provider'), // authorization_endpoint
+                $openIdProvider, // authorization_endpoint
                 $this->params->get('openid.client_id'), // Client ID
                 $this->params->get('openid.client_secret') // Client Secret
             );
     
             $oidc->setRedirectURL($this->params->get('openid.redirect_uri')); // must be the same as you registered
             $oidc->addScope($this->params->get('openid.scope')); //must be the same as you registered
+            
+            if (!$isMyItsSso) {
+                $oidc->addAuthParam(['prompt' => 'select_account']);
+            }
     
             if($this->params->get('kernel.environment') === 'dev') {
                 // remove this if in production mode
@@ -84,37 +95,27 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
             $session = $request->getSession();
             $session->set('oidc.id_token', $oidc->getIdToken());
             $session->save();
-            $userSso = $oidc->requestUserInfo(); // this will return user information from myITS SSO database
-    
+
+            $nrp = '';
+            
+            if ($isMyItsSso) {
+                // myITS SSO need to request user info to get NRP
+                $userSso = $oidc->requestUserInfo(); // this will return user information from myITS SSO database
+                $nrp = $userSso->reg_id;
+            } else {
+                // Entra ID need to get NRP from ID Token
+                $idTokenPayload = $oidc->getIdTokenPayload();
+                $nrp = $idTokenPayload->reg_id;
+            }
+
             $em = $this->em;
-    
-            $nrp = $userSso->reg_id;
             /** @var ?User $user */
             $user = $em->getRepository(User::class)->findOneBy(['externalid' => $nrp]);
-            try {
-                if (gettype($userSso->picture) !== 'string' || empty($userSso->picture))
-                    throw new \Exception('no_picture');
-                $picture = file_get_contents($userSso->picture);
-                $jpegType = !empty(array_filter($http_response_header, function($header) {
-                    return $header == 'Content-Type: image/jpeg';
-                }));
-                $pngType = !empty(array_filter($http_response_header, function($header) {
-                    return $header == 'Content-Type: image/png';
-                }));
-
-                $teamId = $nrp;
-                if ($teamId && ($jpegType || $pngType)) {
-                    $path = $this->dj->assetPath(sprintf("%s.png", $teamId), 'team', true);
-                    if ($path) unlink($path);
-                    $path = $this->dj->assetPath(sprintf("%s.jpg", $teamId), 'team', true);
-                    if ($path) unlink($path);
-                    $path = sprintf("%s/public/images/teams/%s.%s", $this->dj->getDomjudgeWebappDir(), $teamId, ($pngType ? 'png' : 'jpg'));
-                    if ($path) {
-                        file_put_contents($path, $picture);
-                    }
-                }
-            } catch(\Exception $e) {
-                
+            
+            if ($isMyItsSso) {
+                $this->savePictureFromMyItsSso($userSso->picture, $nrp);
+            } else {
+                // $this->savePictureFromEntraId($oidc->getAccessToken(), $nrp);
             }
     
             if (!$user) {
@@ -128,6 +129,66 @@ class MyITSSSOAuthenticator extends AbstractAuthenticator
             return new SelfValidatingPassport(new UserBadge($user->getUsername()));
         } catch (OpenIDConnectClientException $e) {
             throw new CustomUserMessageAuthenticationException($e->getMessage());
+        }
+    }
+
+    private function savePictureFromMyItsSso($picture, $nrp) {
+        try {
+            if (gettype($picture) !== 'string' || empty($picture))
+                throw new \Exception('no_picture');
+            $picture = file_get_contents($picture);
+            $jpegType = !empty(array_filter($http_response_header, function($header) {
+                return $header == 'Content-Type: image/jpeg';
+            }));
+            $pngType = !empty(array_filter($http_response_header, function($header) {
+                return $header == 'Content-Type: image/png';
+            }));
+
+            $teamId = $nrp;
+            if ($teamId && ($jpegType || $pngType)) {
+                $path = $this->dj->assetPath(sprintf("%s.png", $teamId), 'team', true);
+                if ($path) unlink($path);
+                $path = $this->dj->assetPath(sprintf("%s.jpg", $teamId), 'team', true);
+                if ($path) unlink($path);
+                $path = sprintf("%s/public/images/teams/%s.%s", $this->dj->getDomjudgeWebappDir(), $teamId, ($pngType ? 'png' : 'jpg'));
+                if ($path) {
+                    file_put_contents($path, $picture);
+                }
+            }
+        } catch(\Exception $e) {
+            
+        }
+    }
+
+    private function savePictureFromEntraId($accessToken, $nrp) {
+        $pictureEndpoint = "https://graph.microsoft.com/v1.0/me/photo/\$value";
+        try {
+            $options = array('http' => array(
+                'method'  => 'GET',
+                'header' => 'Authorization: Bearer ' . $accessToken
+            ));
+            $context  = stream_context_create($options);
+            $picture = file_get_contents($pictureEndpoint, false, $context);
+            $jpegType = !empty(array_filter($http_response_header, function($header) {
+                return $header == 'Content-Type: image/jpeg';
+            }));
+            $pngType = !empty(array_filter($http_response_header, function($header) {
+                return $header == 'Content-Type: image/png';
+            }));
+
+            $teamId = $nrp;
+            if ($teamId && ($jpegType || $pngType)) {
+                $path = $this->dj->assetPath(sprintf("%s.png", $teamId), 'team', true);
+                if ($path) unlink($path);
+                $path = $this->dj->assetPath(sprintf("%s.jpg", $teamId), 'team', true);
+                if ($path) unlink($path);
+                $path = sprintf("%s/public/images/teams/%s.%s", $this->dj->getDomjudgeWebappDir(), $teamId, ($pngType ? 'png' : 'jpg'));
+                if ($path) {
+                    file_put_contents($path, $picture);
+                }
+            }
+        } catch(\Exception $e) {
+            
         }
     }
 
