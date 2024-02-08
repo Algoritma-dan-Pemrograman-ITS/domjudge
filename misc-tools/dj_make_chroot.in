@@ -426,9 +426,14 @@ if [ -n "$REPOLISTS" ]; then
 fi
 
 # Upgrade the system, and install/remove packages as desired
+# Install C# Compiler (Praktikum RPL 2024)
 in_chroot "apt-get update && apt-get dist-upgrade"
+in_chroot "apt-get install -y gnupg && gpg --homedir /tmp --no-default-keyring --keyring /usr/share/keyrings/mono-official-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF"
+in_chroot 'echo "deb [signed-by=/usr/share/keyrings/mono-official-archive-keyring.gpg] https://download.mono-project.com/repo/debian stable-buster main" | tee /etc/apt/sources.list.d/mono-official-stable.list'
+in_chroot "apt-get remove --purge gnupg"
+in_chroot "apt-get autoremove --purge"
 in_chroot "apt-get clean"
-in_chroot "apt-get install $INSTALLDEBS"
+in_chroot "apt-get install -y $INSTALLDEBS mono-devel"
 if [ -n "$LOCALDEBS" ]; then
     DIR=$(mktemp -d -p "$CHROOTDIR/tmp" 'dj_chroot_debs_XXXXXX')
     # shellcheck disable=SC2046
